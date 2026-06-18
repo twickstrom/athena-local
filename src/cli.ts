@@ -1,11 +1,23 @@
 #!/usr/bin/env bun
 
 import { runCliAsync } from "./cli/run.ts";
+import { loadConfigFiles } from "./config/files.ts";
 import { createAthenaLocalHandler } from "./server/bootstrap.ts";
+
+const loadedConfig = await loadConfigFiles(process.cwd());
+if (loadedConfig.issues.length > 0) {
+  console.error(
+    loadedConfig.issues
+      .map((issue) => `${issue.field}: ${issue.message}`)
+      .join("\n"),
+  );
+  process.exit(2);
+}
 
 const result = await runCliAsync(Bun.argv.slice(2), {
   env: Bun.env,
   isTty: process.stdin.isTTY === true && process.stdout.isTTY === true,
+  configSources: loadedConfig.sources,
 });
 
 if (result.stdout.length > 0) {

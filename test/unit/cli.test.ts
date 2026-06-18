@@ -96,6 +96,47 @@ describe("CLI runner", () => {
     );
   });
 
+  test("renders explicit unknown service status before runtime inspection exists", () => {
+    const result = runCli(["status", "--json", "--runtime", "docker"]);
+
+    expect(result.exitCode).toBe(0);
+    const output = JSON.parse(result.stdout) as {
+      serviceStatus: Array<{
+        service: string;
+        state: string;
+        healthy: boolean;
+        message: string;
+      }>;
+    };
+
+    expect(output.serviceStatus).toEqual([
+      {
+        service: "postgres",
+        state: "unknown",
+        healthy: false,
+        message: "Runtime service inspection is not wired yet.",
+      },
+      {
+        service: "minio",
+        state: "unknown",
+        healthy: false,
+        message: "Runtime service inspection is not wired yet.",
+      },
+      {
+        service: "hive-metastore",
+        state: "unknown",
+        healthy: false,
+        message: "Runtime service inspection is not wired yet.",
+      },
+      {
+        service: "trino",
+        state: "unknown",
+        healthy: false,
+        message: "Runtime service inspection is not wired yet.",
+      },
+    ]);
+  });
+
   test("fails safely for unsafe S3 prefixes", () => {
     const result = runCli([
       "start",

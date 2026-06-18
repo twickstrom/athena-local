@@ -115,6 +115,15 @@ export function runCli(
             networkName: resolved.config.projectId,
             redact: true,
           });
+    const serviceStatus =
+      parsed.command !== "status" || runtimePlan === undefined
+        ? undefined
+        : runtimePlan.services.map((service) => ({
+            service,
+            state: "unknown",
+            healthy: false,
+            message: "Runtime service inspection is not wired yet.",
+          }));
 
     return ok(
       `${JSON.stringify(
@@ -124,6 +133,7 @@ export function runCli(
           config: redactConfig(resolved.config),
           ...(runtimePlan === undefined ? {} : { runtimePlan }),
           ...(runtimeCommands === undefined ? {} : { runtimeCommands }),
+          ...(serviceStatus === undefined ? {} : { serviceStatus }),
           checks: checksFor(parsed.command),
         },
         null,

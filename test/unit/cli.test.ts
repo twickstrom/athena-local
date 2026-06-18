@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { parseArgs } from "../../src/cli/args.ts";
 import { runCli, runCliAsync } from "../../src/cli/run.ts";
+import type { HostDoctorChecks } from "../../src/doctor/checks.ts";
 import type { RuntimeAdapter, RuntimeStatus } from "../../src/runtime/types.ts";
 
 describe("CLI arguments", () => {
@@ -129,6 +130,7 @@ describe("CLI runner", () => {
           services: [],
         }),
       },
+      hostChecks: fakeHostChecks(),
     });
 
     expect(result.exitCode).toBe(0);
@@ -142,6 +144,10 @@ describe("CLI runner", () => {
           version?: string;
           message?: string;
         }>;
+        host: {
+          ports: Array<{ name: string; port: number; available: boolean }>;
+          writableDirectories: Array<{ path: string; writable: boolean }>;
+        };
       };
     };
 
@@ -160,6 +166,15 @@ describe("CLI runner", () => {
         services: [],
       },
     ]);
+    expect(output.diagnostics.host.ports).toContainEqual({
+      name: "athena",
+      port: 4567,
+      available: true,
+    });
+    expect(output.diagnostics.host.writableDirectories).toContainEqual({
+      path: process.cwd(),
+      writable: true,
+    });
   });
 
   test("renders async text doctor diagnostics", async () => {
@@ -178,12 +193,20 @@ describe("CLI runner", () => {
           services: [],
         }),
       },
+      hostChecks: fakeHostChecks({
+        unavailablePorts: new Set(["trino"]),
+        unwritablePaths: new Set([`${process.cwd()}/.athena-local`]),
+      }),
     });
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("Selected runtime: apple-container.");
     expect(result.stdout).toContain("- apple-container: available 0.2.1");
     expect(result.stdout).toContain("- docker: available 27.5.1");
+    expect(result.stdout).toContain("- trino 8080: conflict - port in use");
+    expect(result.stdout).toContain(
+      `- ${process.cwd()}/.athena-local: not writable - permission denied`,
+    );
   });
 });
 
@@ -194,5 +217,43 @@ function fakeRuntime(status: RuntimeStatus): RuntimeAdapter {
     planStart: () => [],
     planStop: () => [],
     planDestroy: () => [],
+  };
+}
+
+function fakeHostChecks(
+  options: {
+    readonly unavailablePorts?: ReadonlySet<string>;
+    readonly unwritablePaths?: ReadonlySet<string>;
+  } = {},
+): HostDoctorChecks {
+  return {
+    checkPort: async (name, port) => {
+      if (options.unavailablePorts?.has(name) === true) {
+        return {
+          name,
+          port,
+          available: false,
+          message: "port in use",
+        };
+      }
+      return {
+        name,
+        port,
+        available: true,
+      };
+    },
+    checkWritableDirectory: async (path) => {
+      if (options.unwritablePaths?.has(path) === true) {
+        return {
+          path,
+          writable: false,
+          message: "permission denied",
+        };
+      }
+      return {
+        path,
+        writable: true,
+      };
+    },
   };
 }

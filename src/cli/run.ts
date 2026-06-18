@@ -1,6 +1,11 @@
 import { redactConfig, resolveConfig } from "../config/resolve.ts";
 import type { AthenaLocalConfig } from "../config/types.ts";
 import type { ConfigSources } from "../config/types.ts";
+import {
+  collectHostDiagnostics,
+  type HostDiagnostics,
+  type HostDoctorChecks,
+} from "../doctor/checks.ts";
 import { packageName, projectVersion } from "../index.ts";
 import { createRuntimePlanSummary } from "../runtime/select.ts";
 import { AppleContainerRuntimeAdapter } from "../runtime/apple-container.ts";
@@ -30,11 +35,13 @@ export interface CliEnvironment {
   readonly isTty?: boolean;
   readonly configSources?: Omit<ConfigSources, "cli" | "env">;
   readonly runtimeAdapters?: Partial<Record<RuntimeKind, RuntimeAdapter>>;
+  readonly hostChecks?: HostDoctorChecks;
 }
 
 export interface DoctorDiagnostics {
   readonly selectedRuntime?: RuntimeKind;
   readonly runtimes: readonly RuntimeStatus[];
+  readonly host: HostDiagnostics;
 }
 
 export function runCli(
@@ -226,14 +233,18 @@ async function detectRuntimes(
   environment: CliEnvironment,
 ): Promise<DoctorDiagnostics> {
   const adapters = createRuntimeAdapters(config, environment);
-  const runtimes = await Promise.all([
-    adapters["apple-container"].detect(),
-    adapters.docker.detect(),
+  const [runtimes, host] = await Promise.all([
+    Promise.all([
+      adapters["apple-container"].detect(),
+      adapters.docker.detect(),
+    ]),
+    collectHostDiagnostics(config, environment.hostChecks),
   ]);
   const selectedRuntime = config.containerRuntime ?? selectDetectedRuntime(runtimes);
 
   return {
     runtimes,
+    host,
     ...(selectedRuntime === undefined ? {} : { selectedRuntime }),
   };
 }
@@ -277,6 +288,16 @@ function renderDoctorDiagnostics(diagnostics: DoctorDiagnostics): string {
     `Selected runtime: ${diagnostics.selectedRuntime ?? "not selected"}.`,
     "Detected runtimes:",
     ...runtimeLines,
+    "Ports:",
+    ...diagnostics.host.ports.map((status) => {
+      const message = status.message === undefined ? "" : ` - ${status.message}`;
+      return `- ${status.name} ${status.port}: ${status.available ? "available" : "conflict"}${message}`;
+    }),
+    "Writable directories:",
+    ...diagnostics.host.writableDirectories.map((status) => {
+      const message = status.message === undefined ? "" : ` - ${status.message}`;
+      return `- ${status.path}: ${status.writable ? "writable" : "not writable"}${message}`;
+    }),
     "",
   ].join("\n");
 }

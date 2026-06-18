@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 Tim Wickstrom
+
 import { createLocalStackServices } from "../infra/services.ts";
 import type { RuntimeConfigPaths } from "../infra/runtime-config.ts";
 import { AppleContainerRuntimeAdapter } from "./apple-container.ts";

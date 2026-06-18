@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 Tim Wickstrom
+
 import type { TrinoClient } from "../trino/client.ts";
 import { mapTrinoStatsToQueryState } from "../trino/error-mapping.ts";
 import type { TrinoPage } from "../trino/types.ts";

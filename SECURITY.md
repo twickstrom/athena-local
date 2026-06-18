@@ -1,6 +1,6 @@
 # Security Policy
 
-Athena Local is pre-alpha. Please do not report vulnerabilities by opening public issues that include secrets, exploit details, or private infrastructure data.
+Please do not report vulnerabilities by opening public issues that include secrets, exploit details, or private infrastructure data.
 
 ## Reporting A Vulnerability
 
@@ -40,4 +40,4 @@ Security-sensitive areas include:
 
 ## Supported Versions
 
-No stable versions exist yet. Security fixes will target the default branch until releases begin.
+Security fixes target the default branch.

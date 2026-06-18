@@ -1,4 +1,7 @@
 #!/usr/bin/env bun
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 Tim Wickstrom
+
 
 import { runCliAsync } from "./cli/run.ts";
 import { loadConfigFiles } from "./config/files.ts";

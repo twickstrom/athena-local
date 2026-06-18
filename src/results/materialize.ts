@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 Tim Wickstrom
+
 import type { StorageBackend } from "../storage/types.ts";
 import type { TrinoColumn } from "../trino/types.ts";
 import { rowsToCsv } from "./csv.ts";

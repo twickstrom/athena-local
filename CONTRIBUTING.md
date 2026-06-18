@@ -1,6 +1,15 @@
 # Contributing
 
-Athena Local is pre-alpha. Contributions should keep scope narrow and preserve the core goal: applications use the real AWS SDK v3 clients locally and in production.
+Contributions should keep scope narrow and preserve the core goal: applications use the real AWS SDK v3 clients locally and in production.
+
+## License & Contributor License Agreement
+
+Athena Local is distributed under the **GNU Affero General Public License v3.0**
+([LICENSE](LICENSE)). By contributing, you agree to the **[Contributor License
+Agreement](CLA.md)**, which lets the maintainer offer the project under both the
+AGPL and separate commercial terms. Acknowledge it in your first pull request as
+described in [CLA.md](CLA.md). Contributions on behalf of an employer need the
+Entity CLA — contact the maintainer first.
 
 ## Development Principles
 

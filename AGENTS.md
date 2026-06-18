@@ -8,19 +8,17 @@ Applications must communicate with the service using the real AWS SDK v3 `Athena
 
 ## Authoritative Documents
 
-Read these files completely before making architectural or implementation decisions:
+Read these before making architectural or implementation decisions:
 
-- `docs/architecture-plan.md`
-- `docs/chat-handoff.md`
-- `docs/mvp-implementation-plan.md`, once created
+- `README.md` — the supported surface, support matrix, and known limitations
+- `AGENTS.md` — these working agreements
+- `CHANGELOG.md` — what has shipped
 
-When documents conflict, prefer:
+When sources conflict, prefer:
 
 1. The user's latest explicit instruction
 2. `AGENTS.md`
-3. `docs/chat-handoff.md`
-4. `docs/architecture-plan.md`
-5. The current milestone plan
+3. `README.md`
 
 ## Runtime and Tooling
 
@@ -280,17 +278,14 @@ Do not add package-manager lockfiles from npm, pnpm, or Yarn.
 - Use generic examples and fixtures.
 - Include a clear AWS trademark and affiliation disclaimer.
 - Do not imply endorsement by Amazon Web Services.
-- Use the MIT License unless a concrete project-specific reason is documented for changing it.
+- The project is licensed under **AGPL-3.0-only** (see LICENSE); contributions are accepted under the [CLA](CLA.md), which preserves dual/commercial licensing. Do not change the license without explicit direction.
 - Document supported operations and compatibility limits prominently.
 
 ## Current Workflow
 
 Before writing production implementation code:
 
-1. Read this file.
-2. Read `docs/architecture-plan.md`.
-3. Read `docs/chat-handoff.md`.
-4. Produce or update `docs/mvp-implementation-plan.md`.
-5. Identify unresolved assumptions and risks.
-6. Divide implementation into milestones that each end in a working, tested state.
-7. Implement only the specifically requested milestone.
+1. Read this file and the relevant parts of `README.md`.
+2. Identify unresolved assumptions and risks.
+3. Divide implementation into milestones that each end in a working, tested state.
+4. Implement only the specifically requested milestone.

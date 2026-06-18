@@ -1,68 +1,62 @@
 # Athena Local
 
-**Run your real AWS Athena code path on your laptop, with no AWS account in the loop.**
+**Run your real AWS Athena code path on your laptop — no AWS account in the loop.**
 
-Athena Local is an Athena-compatible API server backed by [Trino](https://trino.io). Your application keeps using the real AWS SDK v3 `AthenaClient` and `S3Client` — the only things that change between local and production are the endpoint, credentials, and region. No local-only code paths, no hand-written fakes, no `if (isLocal)` branches in your data layer.
+Athena Local is an Athena-compatible API server backed by [Trino](https://trino.io). Your application keeps using the real AWS SDK `AthenaClient` and `S3Client`; the only things that change between local and production are the endpoint, credentials, and region. No local-only code paths, no hand-written fakes, no `if (isLocal)` branches in your data layer.
 
 ```ts
-// The exact same client construction your tests and production share.
+// The exact client construction your tests and production share.
 const athena = new AthenaClient({
   region: "us-east-1",
   endpoint: process.env.ATHENA_ENDPOINT, // http://127.0.0.1:4567 locally, unset in prod
 });
 
-await athena.send(new StartQueryExecutionCommand({ QueryString: "select * from events limit 10" }));
+await athena.send(
+  new StartQueryExecutionCommand({
+    QueryString: "select id, label from athena_local_smoke limit 10",
+  }),
+);
 ```
 
-## The problem
+That's the whole idea: **the data-access code you ship is the data-access code you tested.**
 
-Amazon Athena is a managed service. There is no "Athena in a box," which leaves teams with two bad options for local development and CI:
+## Why Athena Local exists
 
-1. **Point your tests at real Athena.** Every test run needs AWS credentials and network access, costs money per query, leaves artifacts in real S3 buckets, is slow, and turns CI into a flaky, billable dependency on a remote region.
-2. **Hide Athena behind an interface and write a local fake.** Now your fake drifts from real Athena behavior — different SQL dialect, different result shapes, different pagination and error semantics — and the production code path that actually talks to Athena is *never exercised until you deploy*. Your abstraction leaks, and the bugs you were trying to catch live exactly in the gap between the fake and the real thing.
+Amazon Athena is a managed service. There is no "Athena in a box," which leaves teams two bad options for local development and CI:
 
-Both options share one root flaw: **the code that runs in production is not the code you test locally.**
+1. **Point tests at real Athena.** Every run needs AWS credentials and network access, costs money per query, leaves artifacts in real S3, is slow, and turns CI into a flaky, billable dependency on a remote region.
+2. **Hide Athena behind an interface and write a local fake.** The fake drifts from real Athena — different SQL dialect, result shapes, pagination and error semantics — and the production path that actually talks to Athena is *never exercised until you deploy*. The bugs you were trying to catch live precisely in the gap between the fake and the real thing.
 
-## The approach
+Both share one root flaw: **the code that runs in production is not the code you test locally.** Athena Local closes that gap with a third option — a process that speaks Athena's wire protocol, so the real SDK talks to it unmodified, and queries run on a real SQL engine.
 
-Athena Local gives you a third option: a process that speaks Athena's wire protocol, so the real SDK talks to it unmodified. Behind that facade, queries run on Trino — a production-grade distributed SQL engine that shares Athena's Trino/Presto SQL lineage — against catalog metadata in Hive Metastore and data in MinIO (or a real, opt-in S3 prefix).
+## How it compares
 
-You get the asynchronous query lifecycle developers actually depend on — `StartQueryExecution` → poll `GetQueryExecution` → page through `GetQueryResults`, plus `ClientRequestToken` idempotency, `StopQueryExecution` cancellation, S3 result output locations, and Athena-shaped error envelopes — running entirely on your machine.
+| Option | Real SDK path | Real SQL engine | Cost / footprint |
+| --- | :---: | :---: | --- |
+| Real Athena in CI | ✅ | ✅ | $ per query, AWS creds, network, slow, flaky |
+| Mocks (moto / hand-rolled fakes) | ✅ | ❌ mocks the API, runs no SQL | free, but drifts from real behavior |
+| App → Trino directly | ❌ local-only client path | ✅ | free, but reintroduces the `if (isLocal)` fork |
+| Multi-service emulators | ✅ | varies | Athena emulation is typically a paid tier; broad, heavyweight |
+| **Athena Local** | ✅ | ✅ Trino | **free & open source (AGPL-3.0), single-purpose, runs on your machine** |
 
-This is deliberately **application-integration parity, not a full AWS emulator.** The goal is that the data-access code you ship is the data-access code you tested. See [Known Limitations](#known-limitations) for exactly where the line is drawn.
+Athena Local is intentionally *narrow*: it does one thing — make your Athena-backed data layer runnable and testable locally through the real SDK — and tries to do it without lying. (Comparisons reflect the landscape at the time of writing; verify current details for your stack.)
 
 ## Who it is for
 
-- TypeScript and Bun teams whose services query data through AWS Athena.
-- Anyone who wants Athena integration tests in CI without AWS credentials, network access, or per-query cost.
-- Developers who want a fast local query loop over realistic, seeded fixtures instead of a mock that lies.
+- Teams whose services query data through AWS Athena and want a local loop that exercises the **real** SDK path.
+- CI pipelines that need Athena integration coverage without AWS credentials, network, or per-query cost.
+- Anyone who wants a fast local query loop over realistic seeded fixtures instead of a mock that drifts.
 - Projects that need deterministic, reproducible Athena/S3 behavior across every contributor's machine.
 
-## Project status
+**On languages:** Athena Local is implemented in Bun/TypeScript and ships as an npm CLI, and the TypeScript path is the first-class, contract-tested client. But because the facade speaks Athena's **HTTP wire protocol**, any AWS SDK that targets a custom endpoint — Python (`boto3`), JVM, Go, Rust, the AWS CLI — can point at it. Non-TS SDKs share the same protocol but aren't part of the automated contract suite yet; treat them as supported-by-design, validated-by-you.
 
-Athena Local is pre-1.0 and under active development. The application-integration surface described in the [AWS SDK Athena API Support Matrix](#aws-sdk-athena-api-support-matrix) is implemented and tested; interfaces may still change before 1.0, and changes are recorded in [CHANGELOG.md](CHANGELOG.md). Compatibility claims are backed by tests against the real AWS SDK — where behavior is approximate or unimplemented, it is documented rather than silently faked.
-
-## Key Capabilities
-
-- Accepts requests generated by the real AWS SDK v3 `AthenaClient`.
-- Implements the AWS JSON protocol used by Athena.
-- Supports `StartQueryExecution`, `GetQueryExecution`, `GetQueryResults`, and `StopQueryExecution`.
-- Persists query execution state in SQLite.
-- Executes SQL through Trino's HTTP statement protocol.
-- Uses Hive Metastore and PostgreSQL for local catalog metadata.
-- Materializes Athena-style CSV results to object storage.
-- Supports MinIO for isolated local development.
-- Supports opt-in AWS S3 for real-bucket development workflows.
-- Manages local infrastructure through Apple `container` or Docker.
-- Provides deterministic test mode and persistent local development mode.
-
-## Architecture
+## How it works
 
 ```mermaid
 flowchart TD
   App[Application]
-  AthenaSDK[@aws-sdk/client-athena]
-  S3SDK[@aws-sdk/client-s3]
+  AthenaSDK[AWS SDK AthenaClient]
+  S3SDK[AWS SDK S3Client]
   Facade[Bun Athena-compatible API facade]
   SQLite[(SQLite query state)]
   Trino[Trino]
@@ -86,169 +80,172 @@ flowchart TD
   Trino -. configured backend .-> S3
 ```
 
-The Bun facade receives Athena API requests, persists lifecycle state, submits SQL to Trino, follows Trino `nextUri` responses, maps Trino results into Athena response shapes, and writes result files to the configured object-storage backend.
+The Bun facade receives Athena API requests, persists lifecycle state in SQLite, submits SQL to Trino over its HTTP statement protocol, follows Trino `nextUri` responses to completion, maps Trino results into Athena response shapes, and writes result files to the configured object store. Catalog metadata lives in Hive Metastore (backed by PostgreSQL); data lives in MinIO by default, or an opt-in, prefix-scoped real S3 bucket.
 
-## Parity Model
+This is **application-integration parity, not a full AWS emulator** — see [Known Limitations](#known-limitations) for exactly where the line is drawn.
 
-Athena Local focuses on the application behaviors most projects depend on:
+## Quick Start
 
-- request serialization through AWS SDK middleware
-- Athena command shapes
-- query execution IDs
-- client request token idempotency
-- polling
-- cancellation
-- paginated result reading
-- S3 result output locations
-- structured Athena-style failures
+```bash
+bunx athena-local configure   # pick runtime, storage, ports (interactive)
+bunx athena-local doctor       # verify the host is ready
+bunx athena-local start        # bring up the stack + serve the facade
+bunx athena-local seed         # create buckets, catalog, partitions, fixtures
+```
 
-It is not a full AWS emulator. IAM, Lake Formation, KMS, Glue crawlers, billing, CloudWatch, and every Athena engine edge case remain outside the local compatibility target.
+> **First run is slower than later ones** — `start` pulls container images and Trino's JVM takes some seconds to report ready. `athena-local doctor` shows readiness; if `start` reports a readiness timeout, re-run `doctor` and check the Trino container logs (`docker logs athena-local-trino`, or `container logs athena-local-trino` on Apple `container`).
+
+Confirm it end to end against the seeded data, using the real SDK:
+
+```ts
+import {
+  AthenaClient,
+  StartQueryExecutionCommand,
+  GetQueryExecutionCommand,
+  GetQueryResultsCommand,
+} from "@aws-sdk/client-athena";
+
+const athena = new AthenaClient({
+  region: "us-east-1",
+  endpoint: "http://127.0.0.1:4567",
+  credentials: { accessKeyId: "local", secretAccessKey: "local-secret" },
+});
+
+const { QueryExecutionId } = await athena.send(
+  new StartQueryExecutionCommand({
+    QueryString: "select id, label from athena_local_smoke limit 10",
+  }),
+);
+
+for (;;) {
+  const { QueryExecution } = await athena.send(
+    new GetQueryExecutionCommand({ QueryExecutionId }),
+  );
+  const state = QueryExecution?.Status?.State;
+  if (state === "SUCCEEDED") break;
+  if (state === "FAILED" || state === "CANCELLED")
+    throw new Error(QueryExecution?.Status?.StateChangeReason);
+  await new Promise((r) => setTimeout(r, 250));
+}
+
+const { ResultSet } = await athena.send(
+  new GetQueryResultsCommand({ QueryExecutionId, MaxResults: 1000 }),
+);
+console.log(ResultSet?.Rows); // → seeded rows, materialized to object storage
+```
+
+Then point your own application at the same endpoints and run it unchanged — see [Configuration](#configuration-and-endpoints).
+
+## Stability
+
+Every operation in the [support matrix](#aws-sdk-athena-api-support-matrix) is implemented and tested against the real AWS SDK. Where behavior is approximate or intentionally unsupported, it is **documented rather than silently faked**. Changes are recorded in [CHANGELOG.md](CHANGELOG.md).
 
 ## AWS SDK Athena API Support Matrix
 
-The `@aws-sdk/client-athena` v3 client exposes ~70 operations. Athena Local implements the twelve that real application data-access code actually calls — the async query lifecycle, batch/list query reads, workgroup output discovery, and read-only catalog metadata; the request/response shapes are exercised by the real SDK in tests. Every other operation returns a structured `InvalidRequestException` (`Unsupported Athena operation: <name>`) rather than a partial emulation, so application code fails loudly instead of trusting a fake.
+The `@aws-sdk/client-athena` client exposes ~70 operations. Athena Local implements the ones an application's data-access code calls at runtime — and rejects the rest with a structured `InvalidRequestException` (`Unsupported Athena operation: <name>`) so code fails loudly instead of trusting a fake.
 
-**Implementation type** distinguishes how an operation is backed:
+**Scope, in one sentence:** Athena Local implements the operations that **run queries, read their results, and read the execution / workgroup / catalog metadata** the SDK and tooling expect at runtime. Operations that **create or govern AWS-managed resources** — workgroup policies, data-catalog registration, named queries, capacity, notebooks/Spark, tagging — are out of scope, because there is no managed resource to govern locally. That principle, not a feature count, decides what's in.
 
-- **Full** — backed by the real engine (Trino) and persisted query state; behaves like Athena for the supported surface.
-- **Unsupported** — routed but explicitly rejected with an Athena-style error.
-- **Not planned** — outside the project's scope (see [Known Limitations](#known-limitations)).
+**Implementation type:** **Full** = backed by the real engine (Trino) and persisted state, behaving like Athena for the supported surface. **Unsupported** = routed but explicitly rejected. **Not planned / Not yet** = outside current scope (see notes).
 
 ### Implemented
 
-| Operation | Status | Implementation | Tested by | Notes |
-| --- | :---: | --- | --- | --- |
-| `StartQueryExecution` | ✅ | Full | `e2e`, `protocol`, `unit` | Submits SQL to Trino asynchronously, returns a query execution ID, honors `ClientRequestToken` idempotency and `ResultConfiguration.OutputLocation`. |
-| `GetQueryExecution` | ✅ | Full | `e2e`, `integration`, `protocol`, `unit` | Returns state (`QUEUED`/`RUNNING`/`SUCCEEDED`/`FAILED`/`CANCELLED`), context, output location, `StateChangeReason`, and statistics. |
-| `GetQueryResults` | ✅ | Full | `e2e`, `integration`, `unit` | Returns `ResultSetMetadata`, header row, data rows, with `MaxResults` + opaque `NextToken` pagination. |
-| `StopQueryExecution` | ✅ | Full | `integration`, `protocol`, `unit` | Cancels the running Trino query and persists `CANCELLED`. |
-| `BatchGetQueryExecution` | ✅ | Full | `protocol`, `unit` | Returns `QueryExecutions` for known IDs and reports unknown IDs under `UnprocessedQueryExecutionIds`. |
-| `ListQueryExecutions` | ✅ | Full | `protocol`, `unit` | Lists execution IDs most-recent-first with `MaxResults` + opaque `NextToken`; optional `WorkGroup` filter. |
-| `GetWorkGroup` | ✅ | Full | `protocol`, `unit` | Reports the configured result `OutputLocation` for the requested workgroup. Local config only — no enforcement. |
-| `ListWorkGroups` | ✅ | Full | `protocol`, `unit` | Returns the single default local workgroup summary. |
-| `GetDatabase` | ✅ | Full | `protocol`, `unit` | Resolves a database via Trino `information_schema`; throws `MetadataException` when absent. |
-| `ListDatabases` | ✅ | Full | `protocol`, `unit` | Lists databases from `information_schema` (excludes the system `information_schema`), paginated. |
-| `GetTableMetadata` | ✅ | Full | `protocol`, `unit` | Returns a table's columns (name + type) from `information_schema`. See type-mapping note below. |
-| `ListTableMetadata` | ✅ | Full | `protocol`, `unit` | Lists a database's tables with columns; supports the `Expression` substring filter and pagination. |
+| Operation | Implementation | Tested by | Notes |
+| --- | --- | --- | --- |
+| `StartQueryExecution` | Full | `e2e`, `protocol`, `unit` | Submits SQL to Trino asynchronously; returns an execution ID; honors `ClientRequestToken` idempotency and `ResultConfiguration.OutputLocation`. |
+| `GetQueryExecution` | Full | `e2e`, `integration`, `protocol`, `unit` | Returns state (`QUEUED`/`RUNNING`/`SUCCEEDED`/`FAILED`/`CANCELLED`), context, output location, `StateChangeReason`, statistics. |
+| `GetQueryResults` | Full | `e2e`, `integration`, `unit` | Returns `ResultSetMetadata`, header row, data rows; `MaxResults` + opaque `NextToken` pagination. |
+| `StopQueryExecution` | Full | `integration`, `protocol`, `unit` | Cancels the running Trino query and persists `CANCELLED`. |
+| `BatchGetQueryExecution` | Full | `protocol`, `unit` | Returns `QueryExecutions` for known IDs; unknown IDs under `UnprocessedQueryExecutionIds`. |
+| `ListQueryExecutions` | Full | `protocol`, `unit` | Execution IDs most-recent-first; `MaxResults` + `NextToken`; optional `WorkGroup` filter. |
+| `GetWorkGroup` | Full | `protocol`, `unit` | Reports the configured result `OutputLocation` for the workgroup. Local config only — no enforcement. |
+| `ListWorkGroups` | Full | `protocol`, `unit` | Returns the single default local workgroup summary. |
+| `GetDatabase` | Full | `protocol`, `unit` | Resolves a database via Trino `information_schema`; `MetadataException` when absent. |
+| `ListDatabases` | Full | `protocol`, `unit` | Lists databases from `information_schema` (excludes the system schema); paginated. |
+| `GetTableMetadata` | Full | `protocol`, `unit` | Returns a table's columns (name + type) from `information_schema` (see type note). |
+| `ListTableMetadata` | Full | `protocol`, `unit` | Lists a database's tables with columns; `Expression` substring filter + pagination. |
 
-Notes on the catalog operations:
-
-- `CatalogName` is accepted but the local stack exposes a single catalog (Hive via Trino); requests resolve against it.
-- Column `Type` is reported as the Trino `information_schema` type (e.g. `integer`, `varchar`), which is close to but not byte-identical with Athena/Hive type names. `PartitionKeys` are returned in `Columns` rather than split out.
-- Database and table names are validated as plain identifiers (`[A-Za-z_][A-Za-z0-9_]*`) before they reach `information_schema`, so metadata lookups have no SQL-injection surface.
+**Catalog operation notes:** `CatalogName` is accepted but the local stack exposes a single catalog (Hive via Trino) and resolves against it. Column `Type` is the Trino `information_schema` type (e.g. `integer`, `varchar`) — close to but not byte-identical with Athena/Hive type names — and `PartitionKeys` appear in `Columns` rather than split out. Database/table names are validated as plain identifiers (`[A-Za-z_][A-Za-z0-9_]*`) before reaching `information_schema`, so metadata lookups have no SQL-injection surface.
 
 ### Not implemented
 
-Every operation below is routed and rejected with `InvalidRequestException`. They are grouped by capability; none are emulated.
+Every operation below is routed and rejected with `InvalidRequestException` — never partially emulated.
 
-| Capability area | Operations | Status | Why |
-| --- | --- | :---: | --- |
-| Batch / saved-query lookups | `BatchGetNamedQuery`, `BatchGetPreparedStatement` | ❌ | Not planned — batch reads over named-query/prepared-statement features that are themselves out of scope. |
-| Runtime statistics | `GetQueryRuntimeStatistics` | ❌ | Not planned — detailed per-stage Trino statistics are not surfaced through the Athena shape. |
-| Workgroup management | `CreateWorkGroup`, `UpdateWorkGroup`, `DeleteWorkGroup` | ❌ | Not planned — the local workgroup is read-only; there is no policy/limit enforcement to manage. |
-| Data Catalog registration | `CreateDataCatalog`, `GetDataCatalog`, `UpdateDataCatalog`, `DeleteDataCatalog`, `ListDataCatalogs` | ❌ | Not planned — the local catalog is fixed (Hive via Trino); there is nothing to register or switch. |
-| Prepared statements | `CreatePreparedStatement`, `GetPreparedStatement`, `UpdatePreparedStatement`, `DeletePreparedStatement`, `ListPreparedStatements` | ❌ | Not yet — see the assessment below; supportable, but deferred until there is demand. |
-| Named queries | `CreateNamedQuery`, `GetNamedQuery`, `UpdateNamedQuery`, `DeleteNamedQuery`, `ListNamedQueries` | ❌ | Not planned — saved-query management is not part of the execution path. |
-| Notebooks & Spark sessions | `CreateNotebook`, `ImportNotebook`, `ExportNotebook`, `UpdateNotebook`, `DeleteNotebook`, `GetNotebookMetadata`, `UpdateNotebookMetadata`, `ListNotebookMetadata`, `ListNotebookSessions`, `CreatePresignedNotebookUrl`, `StartSession`, `GetSession`, `GetSessionStatus`, `GetSessionEndpoint`, `ListSessions`, `TerminateSession` | ❌ | Not planned — the PySpark/notebook engine is not part of an SQL-on-Trino facade. |
-| Calculations (Spark) | `StartCalculationExecution`, `StopCalculationExecution`, `GetCalculationExecution`, `GetCalculationExecutionCode`, `GetCalculationExecutionStatus`, `ListCalculationExecutions` | ❌ | Not planned — Spark calculation execution is out of scope. |
-| Capacity reservations | `CreateCapacityReservation`, `GetCapacityReservation`, `UpdateCapacityReservation`, `CancelCapacityReservation`, `DeleteCapacityReservation`, `ListCapacityReservations`, `GetCapacityAssignmentConfiguration`, `PutCapacityAssignmentConfiguration` | ❌ | Not planned — provisioned capacity is an AWS billing/scheduling concept with no local equivalent. |
-| Engine / executors / DPU | `ListEngineVersions`, `ListExecutors`, `ListApplicationDPUSizes`, `GetResourceDashboard` | ❌ | Not planned — AWS-managed runtime metadata. |
-| Tagging | `TagResource`, `UntagResource`, `ListTagsForResource` | ❌ | Not planned — no AWS resource model to tag locally. |
+| Capability area | Operations | Why |
+| --- | --- | --- |
+| Batch / saved-query lookups | `BatchGetNamedQuery`, `BatchGetPreparedStatement` | Batch reads over features that are themselves out of scope. |
+| Runtime statistics | `GetQueryRuntimeStatistics` | Detailed per-stage Trino stats aren't surfaced through the Athena shape. |
+| Workgroup management | `CreateWorkGroup`, `UpdateWorkGroup`, `DeleteWorkGroup` | The local workgroup is read-only — no policy/limit to manage. |
+| Data Catalog registration | `CreateDataCatalog`, `GetDataCatalog`, `UpdateDataCatalog`, `DeleteDataCatalog`, `ListDataCatalogs` | The local catalog is fixed (Hive via Trino) — nothing to register or switch. |
+| Prepared statements | `CreatePreparedStatement`, `GetPreparedStatement`, `UpdatePreparedStatement`, `DeletePreparedStatement`, `ListPreparedStatements` | **Coming soon** — on the near-term roadmap (see [Prepared statements](#prepared-statements-coming-soon)). |
+| Named queries | `CreateNamedQuery`, `GetNamedQuery`, `UpdateNamedQuery`, `DeleteNamedQuery`, `ListNamedQueries` | Saved-query management isn't part of the execution path. |
+| Notebooks & Spark sessions | `CreateNotebook`, `ImportNotebook`, `ExportNotebook`, `UpdateNotebook`, `DeleteNotebook`, `GetNotebookMetadata`, `UpdateNotebookMetadata`, `ListNotebookMetadata`, `ListNotebookSessions`, `CreatePresignedNotebookUrl`, `StartSession`, `GetSession`, `GetSessionStatus`, `GetSessionEndpoint`, `ListSessions`, `TerminateSession` | The PySpark/notebook engine isn't part of an SQL-on-Trino facade. |
+| Calculations (Spark) | `StartCalculationExecution`, `StopCalculationExecution`, `GetCalculationExecution`, `GetCalculationExecutionCode`, `GetCalculationExecutionStatus`, `ListCalculationExecutions` | Spark calculation execution is out of scope. |
+| Capacity reservations | `CreateCapacityReservation`, `GetCapacityReservation`, `UpdateCapacityReservation`, `CancelCapacityReservation`, `DeleteCapacityReservation`, `ListCapacityReservations`, `GetCapacityAssignmentConfiguration`, `PutCapacityAssignmentConfiguration` | Provisioned capacity is an AWS billing/scheduling concept with no local equivalent. |
+| Engine / executors / DPU | `ListEngineVersions`, `ListExecutors`, `ListApplicationDPUSizes`, `GetResourceDashboard` | AWS-managed runtime metadata. |
+| Tagging | `TagResource`, `UntagResource`, `ListTagsForResource` | No AWS resource model to tag locally. |
 
-> If your application depends on one of these, open an issue describing the use case. The bar for adding an operation is a real application-integration need plus AWS SDK contract coverage — not breadth for its own sake.
+> Need one of these? Open an issue describing the use case. The bar for adding an operation is a real application-integration need plus AWS SDK contract coverage — not breadth for its own sake.
 
-### Supporting prepared statements (assessment)
+### Prepared statements (coming soon)
 
-Prepared statements are the one deferred item that is genuinely supportable. Difficulty: **medium** — more than the catalog operations, less than the core query path. What it would take:
+Prepared statements — `CreatePreparedStatement` … `ListPreparedStatements`, plus the `EXECUTE … USING` form via `ExecutionParameters` — are on the near-term roadmap. The facade already accepts `ExecutionParameters`; the remaining work is a small, well-tested parameter-binding layer that substitutes strictly-typed, escaped values into the stored statement (Trino's native `PREPARE`/`EXECUTE` is session-scoped, so binding happens in the facade). Until it ships, these operations route to the standard unsupported-operation error.
 
-- **State.** A new `prepared_statement` table (name, workgroup, query text, timestamps) and a repository, mirroring the existing query-execution store. `Create/Get/Update/Delete/ListPreparedStatements` then become thin CRUD handlers (a day's work, low risk).
-- **Execution wiring (the real work).** Athena runs a prepared statement via `StartQueryExecution` with `QueryString = "EXECUTE stmt USING val1, val2"` plus `ExecutionParameters`. The facade already accepts `ExecutionParameters`; it would need to (a) detect the `EXECUTE … USING` form, (b) look up the stored statement, and (c) bind parameters. Trino's own `PREPARE`/`EXECUTE` is **session-scoped**, so a stored Athena statement can't be reused across Trino sessions directly. The clean approach is to substitute parameters into the stored SQL ourselves (Trino `EXECUTE IMMEDIATE` or literal binding with strict typing/escaping), which means a small, well-tested parameter-binding layer.
-- **Risk.** The binding layer is the only sharp edge — it must escape and type parameters correctly to avoid both SQL injection and type mismatches. That is exactly the kind of thing to cover with heavy unit tests.
+## Known Limitations
 
-Rough estimate: ~1–2 days including tests. It is deferred only because no current use case demands it, not because it is hard to do well.
+Athena Local targets application-integration parity. Knowing precisely where it stops is part of using it correctly — these are deliberate boundaries, not bugs. This is the single source of truth for behavioral fidelity.
 
-## Supported Query Behavior
+**Query engine & SQL**
+- Queries run on **Trino**, not Athena's managed engine. Athena's SQL is Trino/Presto-derived, so most analytical queries behave identically — but engine-specific functions, reserved words, type coercions, and edge-case semantics can differ. Treat real Athena as the source of truth for anything subtle.
+- **DDL is not translated.** Athena DDL (e.g. `CREATE EXTERNAL TABLE … ROW FORMAT SERDE`) and Trino DDL differ; define local schemas with Trino-dialect DDL or seed files, not by replaying Athena DDL verbatim.
+- No federated/connector queries, no `UNLOAD`, no prepared-statement execution.
 
-- `QUEUED`, `RUNNING`, `SUCCEEDED`, `FAILED`, and `CANCELLED`
-- `ClientRequestToken` idempotency
-- Athena-compatible response envelopes
-- Athena-compatible error envelopes
-- result pagination
-- CSV result materialization
-- `ResultConfiguration.OutputLocation`
-- restart-aware SQLite query state
-- basic execution statistics
-- Trino error mapping
+**Catalog & storage**
+- **Hive Metastore stands in for the Glue Data Catalog.** Glue-specific features (crawlers, classifiers, Glue APIs, automatic partition discovery) aren't emulated — you manage partitions explicitly.
+- The local object store is **MinIO** by default; Athena Local never ships a custom S3 server. S3 semantics are exactly MinIO's (or real S3 when opted in).
 
-## Unsupported Behavior
+**API surface & auth**
+- Only the operations in the [support matrix](#aws-sdk-athena-api-support-matrix) are implemented; others return an unsupported-operation error.
+- **SigV4 signatures are accepted but not verified.** Requests are routed by `X-Amz-Target`; the facade does not authenticate or authorize. **This is a local development tool — do not expose it as a network service.**
+- **Workgroup enforcement is minimal** — workgroups are recorded for response shape, not enforced for limits, encryption, or output-location overrides.
 
-Athena Local does not implement:
+**Statistics & fidelity**
+- `DataScannedInBytes` and timing statistics are **best-effort** and reflect Trino, not Athena's billing meter — never use them for cost assertions.
+- Error messages are Athena-*shaped* (correct exception names and envelopes) but not guaranteed byte-for-byte identical to AWS.
 
-- full Athena API coverage
-- full Glue API compatibility
-- IAM policy evaluation
-- Lake Formation
-- KMS behavior
-- Glue crawlers
-- Athena billing
-- exact bytes-scanned parity
-- federated Athena connectors
-- complete workgroup enforcement
-- every AWS throttling behavior
-- complete S3 emulation
-- exact parity for every Athena engine edge case
+**Not in scope (by design)**
+- IAM / resource policies, Lake Formation, KMS, CloudWatch metrics, Athena billing, throttling parity, Glue crawlers.
 
-Unsupported behavior is explicit so application tests do not mistake local approximations for AWS guarantees.
+For AWS-specific edge cases, opt-in [AWS contract tests](#testing) against a real, isolated S3 prefix remain the authoritative check.
 
 ## Prerequisites
 
 - Bun
 - Git
 - One supported container runtime:
-  - Apple `container`
-  - Docker Engine or Docker Desktop
+  - Apple `container` (macOS), or
+  - Docker Engine / Docker Desktop
 
 Docker Compose is not required.
 
-## Supported Platforms
+| Platform | Runtimes | Storage |
+| --- | --- | --- |
+| macOS | Apple `container` or Docker | MinIO, opt-in AWS S3 |
+| Linux | Docker | MinIO, opt-in AWS S3 |
+| Windows | Not supported directly | — |
 
-| Platform | Runtime |
-| --- | --- |
-| macOS | Apple `container` or Docker |
-| Linux | Docker |
-| Windows | Not supported directly |
+## Configuration and endpoints
 
-## Storage Backends
+### Endpoints
 
-| Backend | Use Case |
-| --- | --- |
-| MinIO | Default offline local development and CI. |
-| AWS S3 | Opt-in workflows that need real S3 buckets with a scoped development prefix. |
+Two layers configure separately: the **tool** (how Athena Local builds the stack) via `ATHENA_LOCAL_*`, and **your app** (how it reaches the running stack) via the AWS SDK.
 
-Athena Local never implements a custom S3-compatible server.
-
-## Installation
-
-```bash
-bun add -d athena-local
-```
-
-Or run through `bunx`:
-
-```bash
-bunx athena-local --help
-```
-
-## Quick Start
-
-```bash
-bunx athena-local configure
-bunx athena-local doctor
-bunx athena-local start
-bunx athena-local seed
-```
-
-Point your application at the local endpoints:
+| What | Variable | Notes |
+| --- | --- | --- |
+| Athena facade (app → facade) | `ATHENA_ENDPOINT` | App convention used by these examples. The AWS SDK also auto-reads the standard `AWS_ENDPOINT_URL_ATHENA` if you prefer no app code. |
+| S3 / MinIO (app → storage) | `S3_ENDPOINT` | App convention. The SDK-standard equivalent is `AWS_ENDPOINT_URL_S3`. Use path-style addressing locally. |
+| Region | `AWS_REGION` | Any region string; not validated locally. |
+| Credentials | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | Any non-empty values for MinIO/local. SigV4 is not verified. |
 
 ```bash
 export AWS_REGION=us-east-1
@@ -258,67 +255,22 @@ export ATHENA_ENDPOINT=http://127.0.0.1:4567
 export S3_ENDPOINT=http://127.0.0.1:9000
 ```
 
-Then run the application without replacing its AWS SDK clients.
+### Tool configuration
 
-## Interactive Setup
+Athena Local separates configuration by responsibility — committed project config, uncommitted local developer config, secrets, environment overrides, and generated runtime state. **Secrets are never written to committed files.**
 
-```bash
-athena-local configure
-```
-
-Interactive setup selects a container runtime, storage backend, ports, persistent directories, project identifier, and seed options. Prompts are shown only when stdin and stdout are attached to a TTY.
-
-## Noninteractive Setup
-
-CI and scripted environments should use flags and environment variables:
-
-```bash
-ATHENA_LOCAL_CONTAINER_RUNTIME=docker \
-ATHENA_LOCAL_STORAGE_BACKEND=minio \
-athena-local start --json
-```
-
-Runtime selection precedence:
-
-1. CLI flag
-2. environment variable
-3. saved local configuration
-4. automatic detection
-5. interactive selection
-
-## Configuration
-
-Athena Local separates configuration by responsibility:
-
-- committed project configuration
-- uncommitted local developer configuration
-- secrets
-- environment overrides
-- generated runtime state
-
-Secrets are never written to committed files.
-
-Configuration precedence:
-
-1. CLI flags
-2. environment variables
-3. local config
-4. committed project config
-5. defaults
-
-## Environment Variables
+Precedence (both for tool config and runtime selection): **CLI flags → environment variables → local config → committed project config → defaults** (runtime selection then falls back to auto-detection, then a TTY prompt).
 
 | Variable | Purpose |
 | --- | --- |
 | `ATHENA_LOCAL_CONTAINER_RUNTIME` | `apple-container` or `docker` |
 | `ATHENA_LOCAL_STORAGE_BACKEND` | `minio` or `s3` |
-| `ATHENA_LOCAL_S3_BUCKET` | Required for AWS S3 backend |
-| `ATHENA_LOCAL_S3_PREFIX` | Required scoped development prefix for AWS S3 backend |
-| `AWS_PROFILE` | Optional AWS profile |
-| `AWS_REGION` | AWS region |
+| `ATHENA_LOCAL_S3_BUCKET` | Required for the AWS S3 backend |
+| `ATHENA_LOCAL_S3_PREFIX` | Required scoped development prefix for the AWS S3 backend |
+| `AWS_PROFILE` | Optional AWS profile (real-S3 workflows) |
 | `AWS_ENDPOINT_URL_S3` | Custom S3 endpoint, only when explicitly configured |
 
-Host ports for each local service can be overridden when the defaults conflict with other processes:
+Host ports (override when defaults conflict):
 
 | Variable | Service | Default |
 | --- | --- | --- |
@@ -329,74 +281,58 @@ Host ports for each local service can be overridden when the defaults conflict w
 | `ATHENA_LOCAL_PORT_HIVE_METASTORE` | Hive Metastore thrift | `9083` |
 | `ATHENA_LOCAL_PORT_POSTGRES` | PostgreSQL | `5432` |
 
-The facade derives its Trino and MinIO endpoints from these ports. To point the facade at services that are already running elsewhere, set `TRINO_ENDPOINT`, `ATHENA_LOCAL_MINIO_ENDPOINT` (or `S3_ENDPOINT`), and `ATHENA_LOCAL_STATE_PATH` directly; these take precedence over the derived defaults.
+The facade derives its Trino and MinIO endpoints from these ports. To attach to services already running elsewhere, set `TRINO_ENDPOINT`, `ATHENA_LOCAL_MINIO_ENDPOINT` (or `S3_ENDPOINT`), and `ATHENA_LOCAL_STATE_PATH` directly — these take precedence over the derived defaults.
 
-## CLI Reference
+## CLI reference
+
+| Command | What it does |
+| --- | --- |
+| `configure` | Create/update local configuration (interactive only in a TTY). |
+| `doctor` | Check runtime availability, versions, port conflicts, service health, storage config, credentials source, writable dirs, unsupported host conditions. |
+| `start` | Create or start the services for the selected mode. |
+| `stop` | Stop services **without** deleting persistent data. |
+| `status` | Report service state, ports, health, storage backend, configured endpoints. |
+| `reset` | Recreate local project state and fixtures. (Never touches remote S3.) |
+| `destroy` | Remove local services and local data, after explicit intent. |
+| `seed` | Create buckets, catalog metadata, partitions, and deterministic fixtures. |
+
+All commands accept `--json` where useful, return stable exit codes, and redact secrets from output. CI and scripts should drive everything noninteractively:
 
 ```bash
-athena-local configure
-athena-local doctor
-athena-local start
-athena-local stop
-athena-local status
-athena-local reset
-athena-local destroy
-athena-local seed
+ATHENA_LOCAL_CONTAINER_RUNTIME=docker \
+ATHENA_LOCAL_STORAGE_BACKEND=minio \
+athena-local start --json
 ```
 
-### `configure`
+No command blocks on input when stdin/stdout isn't a TTY.
 
-Creates or updates local configuration.
+## Runtimes
 
-### `doctor`
+### Apple `container` (macOS)
 
-Checks runtime availability, selected runtime, versions, port conflicts, service health, object-storage configuration, credentials-source status, writable directories, and unsupported host conditions.
-
-### `start`
-
-Creates or starts the local services required for the selected mode.
-
-### `stop`
-
-Stops services without deleting persistent data.
-
-### `status`
-
-Reports service state, ports, health, storage backend, and configured endpoints.
-
-### `reset`
-
-Recreates local project state and fixtures. Remote AWS S3 data is not deleted by local reset.
-
-### `destroy`
-
-Removes local services and local persistent data after explicit intent.
-
-### `seed`
-
-Creates buckets, catalog metadata, partitions, and deterministic fixture data.
-
-## Apple Container Usage
-
-Apple `container` support runs MinIO, Trino, Hive Metastore, and PostgreSQL through the shared runtime abstraction. The Bun Athena facade can run directly on the host for fast development and debugging.
+Runs the full stack — MinIO, Trino, Hive Metastore, and PostgreSQL — through the shared runtime abstraction; the Bun facade can run on the host for fast iteration. Apple `container` resolves services by name through a local DNS domain; create it once (a one-time `sudo`), then start:
 
 ```bash
+sudo container system dns create <domain>
 athena-local start --runtime apple-container
 ```
 
-## Docker Usage
+### Docker
 
-Docker support uses Docker Engine or Docker Desktop through the shared runtime abstraction. Docker Compose is not required.
+Docker Engine or Docker Desktop through the same abstraction; Docker Compose is not required.
 
 ```bash
 athena-local start --runtime docker
 ```
 
-## MinIO Usage
+## Storage backends
 
-MinIO is the default object store. It is used for source data, fixtures, and Athena result output.
+| Backend | Use case |
+| --- | --- |
+| **MinIO** | Default — offline local development and CI. Use path-style access. |
+| **AWS S3** | Opt-in — workflows that need real buckets, with a required scoped development prefix. |
 
-Local S3 clients should use path-style access and the MinIO endpoint:
+Local S3 client for MinIO:
 
 ```ts
 import { S3Client } from "@aws-sdk/client-s3";
@@ -405,16 +341,11 @@ export const s3 = new S3Client({
   region: "us-east-1",
   endpoint: "http://127.0.0.1:9000",
   forcePathStyle: true,
-  credentials: {
-    accessKeyId: "local",
-    secretAccessKey: "local-secret",
-  },
+  credentials: { accessKeyId: "local", secretAccessKey: "local-secret" },
 });
 ```
 
-## AWS S3 Usage
-
-AWS S3 is opt-in and requires an explicit bucket and non-empty development prefix.
+Opt-in real S3:
 
 ```bash
 export ATHENA_LOCAL_STORAGE_BACKEND=s3
@@ -424,293 +355,64 @@ export AWS_PROFILE=development
 export AWS_REGION=us-east-1
 ```
 
-Remote cleanup is scoped to the configured prefix and requires explicit destructive intent. Empty prefixes, root-level deletion, and bucket deletion are rejected.
+Use the standard AWS credential chain for real S3 — profiles, environment credentials, SSO, OIDC, or role-based mechanisms (static local creds are fine only for MinIO). Athena Local never logs credentials, Authorization headers, or signed URLs.
 
-## AWS Credentials And Profiles
+**Remote S3 safety** is intentionally conservative: empty prefixes, root-level operations, and bucket deletion are rejected; destructive actions require force/confirmation (explicit flags when noninteractive); cleanup is scoped to the configured prefix; local `reset`/`destroy` never touch remote data.
 
-Use the standard AWS credential chain where appropriate. Static local credentials are fine for MinIO, but real AWS credentials should come from profiles, environment-provided credentials, SSO, OIDC, or role-based mechanisms.
+## Modes
 
-Athena Local never logs credentials, Authorization headers, or sensitive signed URLs.
+- **Test mode** — deterministic, isolated, noninteractive: generated run IDs, isolated networks/state, explicit timeouts, machine-readable output, fast reset, automatic cleanup. Pure unit tests run with **no** containers, Trino, MinIO, Docker, network, or live AWS.
+- **Persistent development mode** — stable ports and persistent volumes for MinIO, Hive Metastore, PostgreSQL, and Athena query state, for a locally running app over longer sessions. `stop` keeps data; `reset` recreates state; `destroy` removes services and data after explicit intent.
 
-## Trino Storage Configuration
-
-For MinIO, Trino uses a local S3 endpoint, path-style access, local credentials, and HTTP/TLS settings appropriate for the local stack.
-
-For AWS S3, Trino uses the configured region and credential source. Host AWS profiles may need to be mounted or converted into environment-provided credentials depending on the selected container runtime.
-
-No credentials are committed into images or repository files.
-
-## Test Mode
-
-Test mode is deterministic and noninteractive. It uses isolated networks and state, generated run identifiers, explicit timeouts, machine-readable output, fast reset, and automatic cleanup.
-
-Pure unit tests run without containers, Trino, MinIO, Docker, Apple `container`, network access, or live AWS.
-
-## Persistent Local Development Mode
-
-Persistent mode is designed for a locally running application over longer development sessions. It uses stable ports and persistent volumes for MinIO, Hive Metastore, PostgreSQL, and Athena query state.
-
-`stop` does not delete data. `reset` recreates local state. `destroy` removes local services and data after explicit intent.
-
-## Running An Application Against Athena Local
-
-Use normal AWS SDK client construction and local endpoints:
-
-```ts
-import { AthenaClient } from "@aws-sdk/client-athena";
-
-export const athena = new AthenaClient({
-  region: "us-east-1",
-  endpoint: "http://127.0.0.1:4567",
-  credentials: {
-    accessKeyId: "local",
-    secretAccessKey: "local-secret",
-  },
-});
-```
-
-Your application can submit and poll normal Athena commands:
-
-```ts
-import {
-  GetQueryExecutionCommand,
-  GetQueryResultsCommand,
-  StartQueryExecutionCommand,
-} from "@aws-sdk/client-athena";
-import { athena } from "./aws-clients";
-
-const started = await athena.send(
-  new StartQueryExecutionCommand({
-    QueryString: "select * from example_table limit 10",
-    QueryExecutionContext: {
-      Catalog: "AwsDataCatalog",
-      Database: "default",
-    },
-    ResultConfiguration: {
-      OutputLocation: "s3://athena-local-results/local/",
-    },
-  }),
-);
-
-const queryExecutionId = started.QueryExecutionId;
-
-while (true) {
-  const current = await athena.send(
-    new GetQueryExecutionCommand({
-      QueryExecutionId: queryExecutionId,
-    }),
-  );
-
-  const state = current.QueryExecution?.Status?.State;
-  if (state === "SUCCEEDED") break;
-  if (state === "FAILED" || state === "CANCELLED") {
-    throw new Error(current.QueryExecution?.Status?.StateChangeReason);
-  }
-
-  await new Promise((resolve) => setTimeout(resolve, 250));
-}
-
-const page = await athena.send(
-  new GetQueryResultsCommand({
-    QueryExecutionId: queryExecutionId,
-    MaxResults: 1000,
-  }),
-);
-
-console.log(page.ResultSet?.Rows);
-```
-
-## Health Checks
-
-Health checks cover:
-
-- Athena facade
-- Trino
-- Hive Metastore
-- PostgreSQL
-- MinIO
-- object-storage backend
-- required ports
-- credentials-source status
-- writable directories
-
-Run:
+## Testing
 
 ```bash
-athena-local doctor
+bun test
+bun run test:unit        bun run test:protocol     bun run test:sqlite
+bun run test:integration bun run test:e2e          bun run test:aws
+bun run test:docker      bun run test:apple-container
+bun run test:package     bun run test:release
+bun run typecheck        bun run lint              bun run format:check
 ```
 
-## Common Workflows
+Most suites need no infrastructure: `test:unit`, `test:protocol`, `test:sqlite`, `test:integration`, and `test:e2e` use deterministic fakes (in-memory storage, a scripted Trino, and a real AWS SDK client wired to the in-process facade), so they pass offline and in CI without containers or credentials.
 
-### First Local Setup
+The runtime and AWS suites do real work only when their dependency is present, and otherwise skip:
+
+- `test:docker` / `test:apple-container` exercise live runtime detection when the Docker daemon or Apple `container` CLI is available.
+- `test:aws` is opt-in — skipped unless `ATHENA_LOCAL_AWS_TEST=1` is set with `ATHENA_LOCAL_S3_BUCKET` and `ATHENA_LOCAL_S3_PREFIX`, operating only within that scoped prefix.
+
+**Full-stack end-to-end:** `test/e2e/live-stack.test.ts` drives a real `AthenaClient` against a running stack (facade + Trino + Hive Metastore + MinIO) and asserts the seeded table is queryable with results written to object storage. Skipped unless `ATHENA_LOCAL_LIVE=1`:
 
 ```bash
-athena-local configure
-athena-local doctor
-athena-local start
-athena-local seed
+bun run src/cli.ts start --runtime docker &   # bring up the stack + facade
+bun run src/cli.ts seed  --runtime docker
+ATHENA_LOCAL_LIVE=1 bun test test/e2e/live-stack.test.ts
+bun run src/cli.ts destroy --runtime docker
 ```
 
-### Stop Without Deleting Data
-
-```bash
-athena-local stop
-```
-
-### Recreate Local Fixtures
-
-```bash
-athena-local reset
-athena-local seed
-```
-
-### Destroy Local Data
-
-```bash
-athena-local destroy
-```
-
-Remote AWS S3 objects are not deleted by these local lifecycle commands.
+The `Integration` GitHub Actions workflow runs exactly this on Docker for every push to `main` (and on PRs labeled `integration`).
 
 ## Troubleshooting
 
-Start with:
+Start with the machine-readable health views:
 
 ```bash
 athena-local doctor --json
 athena-local status --json
 ```
 
-Common issues include:
+Common issues: selected runtime not installed · port conflicts · unwritable state directories · MinIO bucket not initialized · Trino not ready (often just first-run JVM warmup — see [Quick Start](#quick-start)) · Hive Metastore not reachable · AWS profile unavailable inside the runtime · S3 prefix rejected by safety validation.
 
-- selected runtime not installed
-- port conflicts
-- unwritable local state directories
-- MinIO bucket not initialized
-- Trino not ready
-- Hive Metastore not reachable
-- AWS profile unavailable inside the selected runtime
-- AWS S3 prefix rejected by safety validation
+## Security considerations
 
-## Security Considerations
-
-- Do not commit credentials.
-- Do not log Authorization headers or signed URLs.
-- Use explicit prefixes for remote storage.
-- Keep local reset separate from remote cleanup.
-- Validate user-controlled paths and identifiers.
+- Do not commit credentials; do not log Authorization headers or signed URLs.
+- Use explicit prefixes for remote storage; keep local reset separate from remote cleanup.
+- Validate user-controlled paths and identifiers; scope destructive operations to a project/run namespace.
 - Avoid shell invocation for subprocesses where possible.
-- Scope destructive operations to a project or run namespace.
+- The facade does not verify SigV4 — **never expose it as a network service.**
 
-## Remote S3 Safety
-
-Remote S3 deletion is intentionally conservative:
-
-- empty prefixes are rejected
-- root-level bucket operations are rejected
-- bucket deletion is rejected
-- force or confirmation is required
-- noninteractive deletion requires explicit flags
-- cleanup is scoped to the configured project/run prefix
-- credentials and signed URLs are redacted from logs
-
-## Compatibility Matrix
-
-### Runtime And Storage
-
-| Runtime | MinIO | AWS S3 |
-| --- | --- | --- |
-| Apple `container` | Supported | Supported |
-| Docker | Supported | Supported |
-
-### Application Integration
-
-| Behavior | Support |
-| --- | --- |
-| Real `AthenaClient` requests | Supported |
-| Real `S3Client` requests | Supported |
-| Local-only Athena adapter | Not required |
-| Direct app-to-Trino calls | Not supported |
-
-### AWS Parity
-
-| Area | Support |
-| --- | --- |
-| Query lifecycle | Supported for initial operations |
-| Result pagination | Supported |
-| Result output location | Supported |
-| IAM | Unsupported |
-| KMS | Unsupported |
-| Lake Formation | Unsupported |
-| Billing | Unsupported |
-
-## Known Limitations
-
-Athena Local targets application-integration parity. Knowing precisely where it stops is part of using it correctly — these are deliberate boundaries, not bugs.
-
-**Query engine and SQL**
-- Queries run on **Trino**, not Athena's managed engine. Athena's SQL is Trino/Presto-derived, so most analytical queries behave identically, but engine-specific functions, reserved words, type coercions, and edge-case semantics can differ. Treat real Athena as the source of truth for anything subtle.
-- **DDL is not translated.** Athena DDL (e.g. `CREATE EXTERNAL TABLE ... ROW FORMAT SERDE`) and Trino DDL differ; you define local schemas with Trino-dialect DDL or seed files, not by replaying Athena DDL verbatim.
-- No federated/connector queries, no `UNLOAD`, no prepared-statement/workgroup-parameterized execution beyond the documented operations.
-
-**Catalog and storage**
-- **Hive Metastore stands in for the Glue Data Catalog.** Glue-specific features (crawlers, classifiers, Glue APIs, automatic partition discovery) are not emulated; you manage partitions explicitly.
-- The local object store is **MinIO** by default. Athena Local never ships a custom S3 server; S3 semantics are exactly MinIO's (or real S3 when opted in).
-
-**API surface**
-- Only the four operations in the [AWS SDK Athena API Support Matrix](#aws-sdk-athena-api-support-matrix) are implemented. Other Athena/Glue APIs return an unsupported-operation error rather than a partial emulation.
-- **SigV4 signatures are accepted but not verified.** Requests are routed by `X-Amz-Target`; the facade does not authenticate or authorize. This is a local development tool — do not expose it as a network service.
-- **Workgroup enforcement is minimal** — workgroups are recorded for response shape, not enforced for limits, encryption, or output-location overrides.
-
-**Statistics and fidelity**
-- `DataScannedInBytes` and timing statistics are **best-effort** and reflect Trino, not Athena's billing meter. Never use them for cost assertions.
-- Error messages are Athena-*shaped* (correct exception names and envelopes) but not guaranteed byte-for-byte identical to AWS.
-
-**Not in scope (by design)**
-- IAM / resource policies, Lake Formation, KMS, CloudWatch metrics, Athena billing, throttling parity, and Glue crawlers. See [Unsupported Behavior](#unsupported-behavior).
-
-For AWS-specific edge cases, opt-in [AWS contract tests](#testing) against a real, isolated S3 prefix remain the authoritative check.
-
-## Testing
-
-```bash
-bun test
-bun run test:unit
-bun run test:protocol
-bun run test:sqlite
-bun run test:integration
-bun run test:e2e
-bun run test:docker
-bun run test:apple-container
-bun run test:aws
-bun run test:package
-bun run test:release
-bun run typecheck
-bun run lint
-bun run format:check
-```
-
-Most suites run with no infrastructure: `test:unit`, `test:protocol`, `test:sqlite`, `test:integration`, and `test:e2e` use deterministic fakes (an in-memory storage backend, a scripted Trino, and a real AWS SDK client wired to the in-process facade), so they pass offline and in CI without containers or credentials.
-
-The runtime and AWS suites only do real work when their dependency is present, and otherwise skip:
-
-- `test:docker` and `test:apple-container` exercise live runtime detection when the Docker daemon or Apple `container` CLI is available.
-- `test:aws` is opt-in. It is skipped unless `ATHENA_LOCAL_AWS_TEST=1` is set together with `ATHENA_LOCAL_S3_BUCKET` and `ATHENA_LOCAL_S3_PREFIX`, and it operates only within that scoped development prefix.
-
-### Full-stack end-to-end
-
-`test/e2e/live-stack.test.ts` drives a real `AthenaClient` against a running stack (facade + Trino + Hive Metastore + MinIO) and asserts the seeded table is queryable with results written to object storage. It is skipped unless `ATHENA_LOCAL_LIVE=1`. To run it locally:
-
-```bash
-bun run src/cli.ts start --runtime docker &   # brings up the stack and serves the facade
-bun run src/cli.ts seed --runtime docker
-ATHENA_LOCAL_LIVE=1 bun test test/e2e/live-stack.test.ts
-bun run src/cli.ts destroy --runtime docker
-```
-
-The `Integration` GitHub Actions workflow runs exactly this on Docker for every push to `main` (and on PRs labeled `integration`). Docker is the primary full-stack runtime; the same stack on Apple `container` additionally requires a local DNS domain for inter-service name resolution (`sudo container system dns create …`).
-
-## Development Setup
+## Development
 
 ```bash
 bun install
@@ -719,30 +421,18 @@ bun test
 bun run format:check
 ```
 
-## Contributing
-
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Release Process
+## Release & versioning
 
-Releases are published through GitHub Actions using npm provenance or another short-lived identity mechanism. Developer-workstation publishing is not the normal release path.
-
-## Versioning
-
-Athena Local follows semantic versioning.
-
-Compatibility changes, migration notes, and deprecations are documented in [CHANGELOG.md](CHANGELOG.md).
-
-## Support Policy
-
-See [SUPPORT.md](SUPPORT.md).
+Releases publish through GitHub Actions using npm provenance (or another short-lived identity mechanism); developer-workstation publishing is not the normal path. Athena Local follows semantic versioning, with compatibility changes, migration notes, and deprecations recorded in [CHANGELOG.md](CHANGELOG.md). Support policy: [SUPPORT.md](SUPPORT.md).
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+Athena Local is free and open source under the **GNU Affero General Public License v3.0** — see [LICENSE](LICENSE). If you run a modified version as a network service, the AGPL requires you to make your changes available under the same license.
 
-## Trademark And Non-Affiliation Disclaimer
+Need to use Athena Local without AGPL obligations? **Commercial licensing may be available** — contact the maintainer. Contributors agree to the [Contributor License Agreement](CLA.md).
 
-AWS, Amazon Athena, Amazon S3, and related marks are trademarks of Amazon.com, Inc. or its affiliates.
+## Trademark and non-affiliation
 
-Athena Local is an independent open-source project and is not affiliated with, endorsed by, sponsored by, or supported by Amazon Web Services.
+AWS, Amazon Athena, Amazon S3, and related marks are trademarks of Amazon.com, Inc. or its affiliates. Athena Local is an independent open-source project and is not affiliated with, endorsed by, sponsored by, or supported by Amazon Web Services.

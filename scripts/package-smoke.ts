@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 Tim Wickstrom
+
 import { Glob } from "bun";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -8,7 +11,6 @@ const requiredSourceFiles = [
   "LICENSE",
   "package.json",
   "src/cli.ts",
-  "docs/mvp-implementation-plan.md",
 ];
 
 const forbiddenSourceFiles = [
@@ -23,13 +25,13 @@ const requiredPackageFiles = [
   "package/LICENSE",
   "package/package.json",
   "package/src/cli.ts",
-  "package/docs/mvp-implementation-plan.md",
 ];
 
 const forbiddenPackagePatterns = [
   /^package\/\.env(?:\.|$)/,
   /^package\/\.git\//,
   /^package\/\.athena-local\//,
+  /^package\/docs\//,
   /^package\/node_modules\//,
   /^package\/.*\.sqlite(?:-|$)/,
   /^package\/.*\.sqlite-(?:shm|wal)$/,
@@ -109,8 +111,8 @@ if (forbiddenPackageFile !== undefined) {
 }
 
 const packageJson = await extractPackageJson(tarball);
-if (packageJson.license !== "MIT") {
-  fail("package.json license must be MIT.");
+if (packageJson.license !== "AGPL-3.0-only") {
+  fail("package.json license must be AGPL-3.0-only.");
 }
 if (packageJson.bin?.["athena-local"] !== "./src/cli.ts") {
   fail("package.json must expose the athena-local CLI entry point.");

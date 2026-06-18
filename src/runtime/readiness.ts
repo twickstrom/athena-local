@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 Tim Wickstrom
+
 import { Socket } from "node:net";
 import type { ProcessExecutor } from "../process/command.ts";
 import type { RuntimeReadinessCheck, RuntimeServiceDefinition } from "./types.ts";

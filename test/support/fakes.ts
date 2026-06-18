@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 Tim Wickstrom
+
 import { AthenaClient } from "@aws-sdk/client-athena";
 import { HttpResponse } from "@smithy/core/protocols";
 import type { HttpRequest } from "@smithy/core/protocols";

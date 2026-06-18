@@ -1,6 +1,6 @@
 # Changelog
 
-This project follows semantic versioning once releases begin.
+This project follows semantic versioning.
 
 ## Unreleased
 
@@ -14,6 +14,5 @@ This project follows semantic versioning once releases begin.
 
 ## Release Strategy
 
-- `0.x` alpha releases during early development.
-- Beta releases after AWS SDK contract behavior stabilizes.
-- `1.0.0` once the documented operations and lifecycle behavior are reliable across supported runtimes.
+- `0.x`: the public API may change between minor versions (per semver).
+- `1.0.0`: stable API across the documented operations and lifecycle behavior on supported runtimes.

@@ -1,7 +1,5 @@
 # Support
 
-Athena Local is pre-alpha.
-
 ## Community Support
 
 Use GitHub issues for:
@@ -11,15 +9,15 @@ Use GitHub issues for:
 - feature proposals
 - compatibility findings
 
-## Not Supported Yet
+## Not Supported
 
-The following are not supported until implementation milestones complete:
+Out of scope by design:
 
-- production use
+- production use — Athena Local is a local development and CI tool
 - full Athena compatibility
 - full Glue compatibility
 - Windows runtime support
-- support for unscoped destructive remote S3 operations
+- unscoped destructive remote S3 operations
 
 ## Security Issues
 

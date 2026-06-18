@@ -95,6 +95,10 @@ function validateArgument(arg: string): void {
 }
 
 function redactValue(value: string): string {
+  const assignment = value.match(/^([^=]+)=(.*)$/);
+  if (assignment !== null && isSensitiveKey(assignment[1] ?? "")) {
+    return `${assignment[1]}=[redacted]`;
+  }
   if (value.includes("://") && value.includes("@")) {
     return "[redacted-url]";
   }

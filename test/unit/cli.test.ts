@@ -75,6 +75,27 @@ describe("CLI runner", () => {
     expect(output.checks).toContain("storage-safety");
   });
 
+  test("renders redacted runtime command plans in JSON output", () => {
+    const result = runCli(["start", "--json", "--runtime", "docker"]);
+
+    expect(result.exitCode).toBe(0);
+    const output = JSON.parse(result.stdout) as {
+      runtimeCommands: {
+        command: string;
+        commands: Array<{ executable: string; args: string[] }>;
+      };
+    };
+
+    expect(output.runtimeCommands.command).toBe("start");
+    expect(output.runtimeCommands.commands).toHaveLength(16);
+    expect(JSON.stringify(output.runtimeCommands.commands)).toContain(
+      "MINIO_ROOT_PASSWORD=[redacted]",
+    );
+    expect(JSON.stringify(output.runtimeCommands.commands)).not.toContain(
+      "local-secret",
+    );
+  });
+
   test("fails safely for unsafe S3 prefixes", () => {
     const result = runCli([
       "start",

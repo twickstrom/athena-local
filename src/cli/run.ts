@@ -7,7 +7,11 @@ import {
   type HostDoctorChecks,
 } from "../doctor/checks.ts";
 import { packageName, projectVersion } from "../index.ts";
-import { createRuntimePlanSummary } from "../runtime/select.ts";
+import {
+  createRuntimeCommandPlan,
+  createRuntimePlanSummary,
+  type RuntimePlanCommand,
+} from "../runtime/select.ts";
 import { AppleContainerRuntimeAdapter } from "../runtime/apple-container.ts";
 import { DockerRuntimeAdapter } from "../runtime/docker.ts";
 import type {
@@ -100,6 +104,17 @@ export function runCli(
             projectName: resolved.config.projectId,
             networkName: resolved.config.projectId,
           });
+    const runtimeCommands =
+      resolved.config.containerRuntime === undefined ||
+      !isRuntimePlanCommand(parsed.command)
+        ? undefined
+        : createRuntimeCommandPlan({
+            runtime: resolved.config.containerRuntime,
+            command: parsed.command,
+            projectName: resolved.config.projectId,
+            networkName: resolved.config.projectId,
+            redact: true,
+          });
 
     return ok(
       `${JSON.stringify(
@@ -108,6 +123,7 @@ export function runCli(
           command: parsed.command,
           config: redactConfig(resolved.config),
           ...(runtimePlan === undefined ? {} : { runtimePlan }),
+          ...(runtimeCommands === undefined ? {} : { runtimeCommands }),
           checks: checksFor(parsed.command),
         },
         null,
@@ -312,6 +328,15 @@ function checksFor(command: string): readonly string[] {
     ];
   }
   return ["configuration"];
+}
+
+function isRuntimePlanCommand(command: string): command is RuntimePlanCommand {
+  return (
+    command === "start" ||
+    command === "stop" ||
+    command === "reset" ||
+    command === "destroy"
+  );
 }
 
 export { commands };

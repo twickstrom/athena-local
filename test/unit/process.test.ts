@@ -35,4 +35,24 @@ describe("process command construction", () => {
       NORMAL_VALUE: "visible",
     });
   });
+
+  test("redacts sensitive assignment arguments", () => {
+    const redacted = redactCommand(
+      createCommandSpec("docker", [
+        "create",
+        "--env",
+        "MINIO_ROOT_PASSWORD=local-secret",
+        "--env",
+        "TRINO_ENVIRONMENT=local",
+      ]),
+    );
+
+    expect(redacted.args).toEqual([
+      "create",
+      "--env",
+      "MINIO_ROOT_PASSWORD=[redacted]",
+      "--env",
+      "TRINO_ENVIRONMENT=local",
+    ]);
+  });
 });

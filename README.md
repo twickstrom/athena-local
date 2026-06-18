@@ -1,27 +1,46 @@
 # Athena Local
 
-Athena Local is a lightweight, open-source, AWS Athena API-compatible local development server backed by Trino.
+**Run your real AWS Athena code path on your laptop, with no AWS account in the loop.**
 
-It lets applications use the real AWS SDK v3 `AthenaClient` and standard Athena commands against a local endpoint. The application changes endpoint, credentials, region, and environment configuration between local and production, but it does not need a local-only Athena adapter.
+Athena Local is an Athena-compatible API server backed by [Trino](https://trino.io). Your application keeps using the real AWS SDK v3 `AthenaClient` and `S3Client` — the only things that change between local and production are the endpoint, credentials, and region. No local-only code paths, no hand-written fakes, no `if (isLocal)` branches in your data layer.
 
-## Why Athena Local
+```ts
+// The exact same client construction your tests and production share.
+const athena = new AthenaClient({
+  region: "us-east-1",
+  endpoint: process.env.ATHENA_ENDPOINT, // http://127.0.0.1:4567 locally, unset in prod
+});
 
-Applications that rely on S3 and Athena need realistic local integration tests without rewriting production data-access code. Athena Local keeps the service boundary intact:
+await athena.send(new StartQueryExecutionCommand({ QueryString: "select * from events limit 10" }));
+```
 
-- application code uses `@aws-sdk/client-athena`
-- application code uses `@aws-sdk/client-s3`
-- local SQL execution is delegated to Trino
-- source and result objects are stored in MinIO or an explicitly configured AWS S3 prefix
-- query lifecycle, polling, pagination, cancellation, and output locations follow Athena-style behavior
+## The problem
 
-The goal is application-integration parity, not complete AWS infrastructure emulation.
+Amazon Athena is a managed service. There is no "Athena in a box," which leaves teams with two bad options for local development and CI:
 
-## Who It Is For
+1. **Point your tests at real Athena.** Every test run needs AWS credentials and network access, costs money per query, leaves artifacts in real S3 buckets, is slow, and turns CI into a flaky, billable dependency on a remote region.
+2. **Hide Athena behind an interface and write a local fake.** Now your fake drifts from real Athena behavior — different SQL dialect, different result shapes, different pagination and error semantics — and the production code path that actually talks to Athena is *never exercised until you deploy*. Your abstraction leaks, and the bugs you were trying to catch live exactly in the gap between the fake and the real thing.
 
-- TypeScript and Bun applications that use AWS Athena.
-- Teams that need local and CI tests through the real AWS SDK.
-- Developers who want a Trino-backed local query stack with Athena-shaped APIs.
-- Projects that need deterministic S3/Athena-style fixtures without using production AWS resources.
+Both options share one root flaw: **the code that runs in production is not the code you test locally.**
+
+## The approach
+
+Athena Local gives you a third option: a process that speaks Athena's wire protocol, so the real SDK talks to it unmodified. Behind that facade, queries run on Trino — a production-grade distributed SQL engine that shares Athena's Trino/Presto SQL lineage — against catalog metadata in Hive Metastore and data in MinIO (or a real, opt-in S3 prefix).
+
+You get the asynchronous query lifecycle developers actually depend on — `StartQueryExecution` → poll `GetQueryExecution` → page through `GetQueryResults`, plus `ClientRequestToken` idempotency, `StopQueryExecution` cancellation, S3 result output locations, and Athena-shaped error envelopes — running entirely on your machine.
+
+This is deliberately **application-integration parity, not a full AWS emulator.** The goal is that the data-access code you ship is the data-access code you tested. See [Known Limitations](#known-limitations) for exactly where the line is drawn.
+
+## Who it is for
+
+- TypeScript and Bun teams whose services query data through AWS Athena.
+- Anyone who wants Athena integration tests in CI without AWS credentials, network access, or per-query cost.
+- Developers who want a fast local query loop over realistic, seeded fixtures instead of a mock that lies.
+- Projects that need deterministic, reproducible Athena/S3 behavior across every contributor's machine.
+
+## Project status
+
+Athena Local is pre-1.0 and under active development. The application-integration surface described in [Supported Athena Operations](#supported-athena-operations) is implemented and tested; interfaces may still change before 1.0, and changes are recorded in [CHANGELOG.md](CHANGELOG.md). Compatibility claims are backed by tests against the real AWS SDK — where behavior is approximate or unimplemented, it is documented rather than silently faked.
 
 ## Key Capabilities
 
@@ -561,12 +580,30 @@ Remote S3 deletion is intentionally conservative:
 
 ## Known Limitations
 
-- Athena Local is optimized for application integration tests, not exhaustive engine parity.
-- Hive Metastore replaces Glue Data Catalog locally.
-- SigV4 requests are accepted locally, but full signature verification is not required.
-- Workgroup enforcement is intentionally minimal.
-- Bytes-scanned statistics are best-effort and should not be used for billing assertions.
-- Real AWS contract tests remain the source of truth for AWS-specific edge cases.
+Athena Local targets application-integration parity. Knowing precisely where it stops is part of using it correctly — these are deliberate boundaries, not bugs.
+
+**Query engine and SQL**
+- Queries run on **Trino**, not Athena's managed engine. Athena's SQL is Trino/Presto-derived, so most analytical queries behave identically, but engine-specific functions, reserved words, type coercions, and edge-case semantics can differ. Treat real Athena as the source of truth for anything subtle.
+- **DDL is not translated.** Athena DDL (e.g. `CREATE EXTERNAL TABLE ... ROW FORMAT SERDE`) and Trino DDL differ; you define local schemas with Trino-dialect DDL or seed files, not by replaying Athena DDL verbatim.
+- No federated/connector queries, no `UNLOAD`, no prepared-statement/workgroup-parameterized execution beyond the documented operations.
+
+**Catalog and storage**
+- **Hive Metastore stands in for the Glue Data Catalog.** Glue-specific features (crawlers, classifiers, Glue APIs, automatic partition discovery) are not emulated; you manage partitions explicitly.
+- The local object store is **MinIO** by default. Athena Local never ships a custom S3 server; S3 semantics are exactly MinIO's (or real S3 when opted in).
+
+**API surface**
+- Only the four operations in [Supported Athena Operations](#supported-athena-operations) are implemented. Other Athena/Glue APIs return an unsupported-operation error rather than a partial emulation.
+- **SigV4 signatures are accepted but not verified.** Requests are routed by `X-Amz-Target`; the facade does not authenticate or authorize. This is a local development tool — do not expose it as a network service.
+- **Workgroup enforcement is minimal** — workgroups are recorded for response shape, not enforced for limits, encryption, or output-location overrides.
+
+**Statistics and fidelity**
+- `DataScannedInBytes` and timing statistics are **best-effort** and reflect Trino, not Athena's billing meter. Never use them for cost assertions.
+- Error messages are Athena-*shaped* (correct exception names and envelopes) but not guaranteed byte-for-byte identical to AWS.
+
+**Not in scope (by design)**
+- IAM / resource policies, Lake Formation, KMS, CloudWatch metrics, Athena billing, throttling parity, and Glue crawlers. See [Unsupported Behavior](#unsupported-behavior).
+
+For AWS-specific edge cases, opt-in [AWS contract tests](#testing) against a real, isolated S3 prefix remain the authoritative check.
 
 ## Testing
 

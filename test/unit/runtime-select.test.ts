@@ -15,9 +15,9 @@ describe("runtime plan summaries", () => {
     ).toEqual({
       runtime: "docker",
       serviceCount: 4,
-      startCommandCount: 16,
+      startCommandCount: 15,
       stopCommandCount: 4,
-      destroyCommandCount: 8,
+      destroyCommandCount: 7,
       services: ["postgres", "minio", "hive-metastore", "trino"],
     });
   });
@@ -32,9 +32,9 @@ describe("runtime plan summaries", () => {
     ).toEqual({
       runtime: "apple-container",
       serviceCount: 4,
-      startCommandCount: 16,
+      startCommandCount: 15,
       stopCommandCount: 4,
-      destroyCommandCount: 8,
+      destroyCommandCount: 7,
       services: ["postgres", "minio", "hive-metastore", "trino"],
     });
   });
@@ -50,7 +50,7 @@ describe("runtime plan summaries", () => {
 
     expect(plan.runtime).toBe("docker");
     expect(plan.command).toBe("start");
-    expect(plan.commands).toHaveLength(16);
+    expect(plan.commands).toHaveLength(15);
     expect(JSON.stringify(plan.commands)).not.toContain("minioadmin");
     expect(JSON.stringify(plan.commands)).toContain("MINIO_ROOT_PASSWORD=[redacted]");
   });
@@ -63,12 +63,12 @@ describe("runtime plan summaries", () => {
       networkName: "athena-local",
     });
 
-    expect(reset.commands).toHaveLength(24);
+    expect(reset.commands).toHaveLength(22);
     expect(reset.commands[0]).toEqual({
       executable: "container",
       args: ["rm", "athena-local-postgres"],
     });
-    expect(reset.commands[8]).toEqual({
+    expect(reset.commands[7]).toEqual({
       executable: "container",
       args: ["network", "create", "athena-local"],
     });

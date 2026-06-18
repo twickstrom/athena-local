@@ -1,4 +1,5 @@
 import { createLocalStackServices } from "../infra/services.ts";
+import type { RuntimeConfigPaths } from "../infra/runtime-config.ts";
 import { AppleContainerRuntimeAdapter } from "./apple-container.ts";
 import { DockerRuntimeAdapter } from "./docker.ts";
 import type { ContainerRuntime } from "../config/types.ts";
@@ -25,8 +26,9 @@ export function createRuntimePlanSummary(input: {
   readonly runtime: ContainerRuntime;
   readonly projectName: string;
   readonly networkName: string;
+  readonly configPaths?: RuntimeConfigPaths;
 }): RuntimePlanSummary {
-  const services = createLocalStackServices();
+  const services = createLocalStackServices(input.configPaths);
   const adapter =
     input.runtime === "docker"
       ? new DockerRuntimeAdapter({
@@ -54,8 +56,9 @@ export function createRuntimeCommandPlan(input: {
   readonly projectName: string;
   readonly networkName: string;
   readonly redact?: boolean;
+  readonly configPaths?: RuntimeConfigPaths;
 }): RuntimeCommandPlan {
-  const services = createLocalStackServices();
+  const services = createLocalStackServices(input.configPaths);
   const adapter = createAdapter(input);
   const commands = commandPlan(input.command, adapter, services);
 

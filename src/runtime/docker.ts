@@ -60,9 +60,9 @@ export class DockerRuntimeAdapter implements RuntimeAdapter {
       docker("network", "create", this.#networkName),
       ...services.flatMap((service) => [
         docker("pull", service.image),
-        ...service.volumes.map((volume) =>
-          docker("volume", "create", this.#volumePrefix(volume.name)),
-        ),
+        ...service.volumes
+          .filter((volume) => volume.source?.type !== "bind")
+          .map((volume) => docker("volume", "create", this.#volumePrefix(volume.name))),
         this.#createContainer(service),
         docker("start", this.#containerName(service.name)),
       ]),
@@ -103,9 +103,9 @@ export class DockerRuntimeAdapter implements RuntimeAdapter {
     return [
       ...services.flatMap((service) => [
         docker("rm", "-f", this.#containerName(service.name)),
-        ...service.volumes.map((volume) =>
-          docker("volume", "rm", this.#volumePrefix(volume.name)),
-        ),
+        ...service.volumes
+          .filter((volume) => volume.source?.type !== "bind")
+          .map((volume) => docker("volume", "rm", this.#volumePrefix(volume.name))),
       ]),
       docker("network", "rm", this.#networkName),
     ];
@@ -130,7 +130,7 @@ export class DockerRuntimeAdapter implements RuntimeAdapter {
       ]),
       ...service.volumes.flatMap((volume) => [
         "--volume",
-        `${this.#volumePrefix(volume.name)}:${volume.target}${volume.readonly === true ? ":ro" : ""}`,
+        `${this.#volumeSource(volume)}:${volume.target}${volume.readonly === true ? ":ro" : ""}`,
       ]),
       service.image,
       ...(service.command ?? []),
@@ -159,6 +159,13 @@ export class DockerRuntimeAdapter implements RuntimeAdapter {
 
   #volumePrefix(name: string): string {
     return `${this.#projectName}-${name}`;
+  }
+
+  #volumeSource(volume: RuntimeServiceDefinition["volumes"][number]): string {
+    if (volume.source?.type === "bind") {
+      return volume.source.path;
+    }
+    return this.#volumePrefix(volume.name);
   }
 }
 

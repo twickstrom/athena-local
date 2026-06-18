@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { parseArgs } from "../../src/cli/args.ts";
 import { runCli, runCliAsync } from "../../src/cli/run.ts";
 import type { HostDoctorChecks } from "../../src/doctor/checks.ts";
+import type { RuntimeConfigPaths } from "../../src/infra/runtime-config.ts";
 import type {
   CommandResult,
   CommandSpec,
@@ -93,7 +94,7 @@ describe("CLI runner", () => {
     };
 
     expect(output.runtimeCommands.command).toBe("start");
-    expect(output.runtimeCommands.commands).toHaveLength(16);
+    expect(output.runtimeCommands.commands).toHaveLength(15);
     expect(JSON.stringify(output.runtimeCommands.commands)).toContain(
       "MINIO_ROOT_PASSWORD=[redacted]",
     );
@@ -241,15 +242,16 @@ describe("CLI runner", () => {
       processExecutor: recordingExecutor(executed),
       hostChecks: fakeHostChecks(),
       readinessProbes: fakeReadinessProbes(true),
+      runtimeConfigWriter: async () => fakeRuntimeConfigPaths(),
     });
 
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("start: executed 16 docker command(s).\n");
+    expect(result.stdout).toBe("start: executed 15 docker command(s).\n");
     expect(executed[0]).toEqual({
       executable: "docker",
       args: ["network", "create", "athena-local"],
     });
-    expect(executed).toHaveLength(16);
+    expect(executed).toHaveLength(15);
   });
 
   test("requires explicit runtime before executing runtime commands", async () => {
@@ -263,6 +265,7 @@ describe("CLI runner", () => {
     const executed: CommandSpec[] = [];
     const result = await runCliAsync(["start", "--runtime", "docker"], {
       hostChecks: fakeHostChecks(),
+      runtimeConfigWriter: async () => fakeRuntimeConfigPaths(),
       processExecutor: recordingExecutor(executed, {
         failAt: 2,
         stderr: "port is already allocated",
@@ -271,8 +274,8 @@ describe("CLI runner", () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("port is already allocated");
-    expect(result.stderr).toContain("rollback commands executed: 8");
-    expect(executed).toHaveLength(10);
+    expect(result.stderr).toContain("rollback commands executed: 7");
+    expect(executed).toHaveLength(9);
   });
 
   test("rolls back when runtime readiness fails after start", async () => {
@@ -282,6 +285,7 @@ describe("CLI runner", () => {
       processExecutor: recordingExecutor(executed),
       hostChecks: fakeHostChecks(),
       readinessProbes: fakeReadinessProbes(false),
+      runtimeConfigWriter: async () => fakeRuntimeConfigPaths(),
       readinessOptions: {
         now: () => now,
         sleep: async () => {
@@ -292,8 +296,8 @@ describe("CLI runner", () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("runtime started but readiness failed");
-    expect(result.stderr).toContain("rollback commands executed: 8");
-    expect(executed).toHaveLength(24);
+    expect(result.stderr).toContain("rollback commands executed: 7");
+    expect(executed).toHaveLength(22);
   });
 
   test("rejects start before mutation when required ports conflict", async () => {
@@ -432,6 +436,14 @@ function fakeReadinessProbes(ready: boolean): ReadinessProbes {
     http: async () => ready,
     tcp: async () => ready,
     command: async () => ready,
+  };
+}
+
+function fakeRuntimeConfigPaths(): RuntimeConfigPaths {
+  return {
+    root: "/tmp/athena-local-runtime",
+    trinoConfigDir: "/tmp/athena-local-runtime/trino",
+    hiveConfigDir: "/tmp/athena-local-runtime/hive",
   };
 }
 

@@ -11,6 +11,14 @@ export interface PortMapping {
 
 export interface VolumeMount {
   readonly name: string;
+  readonly source?:
+    | {
+        readonly type: "named";
+      }
+    | {
+        readonly type: "bind";
+        readonly path: string;
+      };
   readonly target: string;
   readonly readonly?: boolean;
 }

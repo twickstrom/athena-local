@@ -1,5 +1,6 @@
 import { createCommandSpec } from "../process/command.ts";
 import type { RuntimeServiceDefinition } from "../runtime/types.ts";
+import type { RuntimeConfigPaths } from "./runtime-config.ts";
 
 export const localServiceImages = {
   minio: "quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z",
@@ -8,7 +9,13 @@ export const localServiceImages = {
   trino: "trinodb/trino:477",
 } as const;
 
-export function createLocalStackServices(): readonly RuntimeServiceDefinition[] {
+export function createLocalStackServices(
+  configPaths: RuntimeConfigPaths = {
+    root: ".athena-local/runtime",
+    trinoConfigDir: ".athena-local/runtime/trino",
+    hiveConfigDir: ".athena-local/runtime/hive",
+  },
+): readonly RuntimeServiceDefinition[] {
   return [
     {
       name: "postgres",
@@ -90,7 +97,17 @@ export function createLocalStackServices(): readonly RuntimeServiceDefinition[] 
           protocol: "tcp",
         },
       ],
-      volumes: [],
+      volumes: [
+        {
+          name: "hive-config",
+          source: {
+            type: "bind",
+            path: configPaths.hiveConfigDir,
+          },
+          target: "/opt/hive/conf",
+          readonly: true,
+        },
+      ],
       dependsOn: ["postgres", "minio"],
       readiness: {
         type: "tcp",
@@ -113,6 +130,10 @@ export function createLocalStackServices(): readonly RuntimeServiceDefinition[] 
       volumes: [
         {
           name: "trino-config",
+          source: {
+            type: "bind",
+            path: configPaths.trinoConfigDir,
+          },
           target: "/etc/trino",
           readonly: true,
         },

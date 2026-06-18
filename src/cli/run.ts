@@ -7,6 +7,10 @@ import {
   type HostDoctorChecks,
 } from "../doctor/checks.ts";
 import { createLocalStackServices } from "../infra/services.ts";
+import {
+  prepareLocalRuntimeConfig,
+  type RuntimeConfigPaths,
+} from "../infra/runtime-config.ts";
 import { packageName, projectVersion } from "../index.ts";
 import {
   createBunProcessExecutor,
@@ -56,6 +60,7 @@ export interface CliEnvironment {
   readonly processExecutor?: ProcessExecutor;
   readonly readinessProbes?: ReadinessProbes;
   readonly readinessOptions?: ReadinessWaitOptions;
+  readonly runtimeConfigWriter?: () => Promise<RuntimeConfigPaths>;
 }
 
 export interface DoctorDiagnostics {
@@ -287,11 +292,17 @@ async function executeRuntimeCommand(
     }
   }
 
+  const configPaths =
+    command === "start" || command === "reset"
+      ? await (environment.runtimeConfigWriter ?? prepareLocalRuntimeConfig)()
+      : undefined;
+
   const plan = createRuntimeCommandPlan({
     runtime: config.containerRuntime,
     command,
     projectName: config.projectId,
     networkName: config.projectId,
+    ...(configPaths === undefined ? {} : { configPaths }),
   });
   const rollback =
     command === "start" || command === "reset"
@@ -300,6 +311,7 @@ async function executeRuntimeCommand(
           command: "destroy",
           projectName: config.projectId,
           networkName: config.projectId,
+          ...(configPaths === undefined ? {} : { configPaths }),
         }).commands
       : [];
   const executor = environment.processExecutor ?? createBunProcessExecutor();
@@ -314,7 +326,7 @@ async function executeRuntimeCommand(
   if (lifecycle.ok) {
     if (command === "start" || command === "reset") {
       const readiness = await waitForServicesReady(
-        createLocalStackServices(),
+        createLocalStackServices(configPaths),
         environment.readinessProbes ?? createDefaultReadinessProbes(executor),
         environment.readinessOptions,
       );

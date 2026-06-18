@@ -62,9 +62,9 @@ export class AppleContainerRuntimeAdapter implements RuntimeAdapter {
       container("network", "create", this.#networkName),
       ...services.flatMap((service) => [
         container("image", "pull", service.image),
-        ...service.volumes.map((volume) =>
-          container("volume", "create", this.#volumeName(volume.name)),
-        ),
+        ...service.volumes
+          .filter((volume) => volume.source?.type !== "bind")
+          .map((volume) => container("volume", "create", this.#volumeName(volume.name))),
         this.#createContainer(service),
         container("start", this.#containerName(service.name)),
       ]),
@@ -102,9 +102,9 @@ export class AppleContainerRuntimeAdapter implements RuntimeAdapter {
     return [
       ...services.flatMap((service) => [
         container("rm", this.#containerName(service.name)),
-        ...service.volumes.map((volume) =>
-          container("volume", "rm", this.#volumeName(volume.name)),
-        ),
+        ...service.volumes
+          .filter((volume) => volume.source?.type !== "bind")
+          .map((volume) => container("volume", "rm", this.#volumeName(volume.name))),
       ]),
       container("network", "rm", this.#networkName),
     ];
@@ -129,7 +129,7 @@ export class AppleContainerRuntimeAdapter implements RuntimeAdapter {
       ]),
       ...service.volumes.flatMap((volume) => [
         "--volume",
-        `${this.#volumeName(volume.name)}:${volume.target}${volume.readonly === true ? ":ro" : ""}`,
+        `${this.#volumeSource(volume)}:${volume.target}${volume.readonly === true ? ":ro" : ""}`,
       ]),
       service.image,
       ...(service.command ?? []),
@@ -156,6 +156,13 @@ export class AppleContainerRuntimeAdapter implements RuntimeAdapter {
 
   #volumeName(name: string): string {
     return `${this.#projectName}-${name}`;
+  }
+
+  #volumeSource(volume: RuntimeServiceDefinition["volumes"][number]): string {
+    if (volume.source?.type === "bind") {
+      return volume.source.path;
+    }
+    return this.#volumeName(volume.name);
   }
 }
 

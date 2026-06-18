@@ -2,6 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { parseArgs } from "../../src/cli/args.ts";
 import { runCli, runCliAsync } from "../../src/cli/run.ts";
 import type { HostDoctorChecks } from "../../src/doctor/checks.ts";
+import type {
+  CommandResult,
+  CommandSpec,
+  ProcessExecutor,
+} from "../../src/process/command.ts";
 import type { RuntimeAdapter, RuntimeStatus } from "../../src/runtime/types.ts";
 
 describe("CLI arguments", () => {
@@ -176,6 +181,43 @@ describe("CLI runner", () => {
     expect(facadeOnly.stdout).toContain("Starting Athena facade on port 4568.");
   });
 
+  test("executes runtime start commands when runtime is selected", async () => {
+    const executed: CommandSpec[] = [];
+    const result = await runCliAsync(["start", "--runtime", "docker"], {
+      processExecutor: recordingExecutor(executed),
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("start: executed 16 docker command(s).\n");
+    expect(executed[0]).toEqual({
+      executable: "docker",
+      args: ["network", "create", "athena-local"],
+    });
+    expect(executed).toHaveLength(16);
+  });
+
+  test("requires explicit runtime before executing runtime commands", async () => {
+    const result = await runCliAsync(["start"]);
+
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain("Runtime command requires --runtime");
+  });
+
+  test("rolls back failed start commands", async () => {
+    const executed: CommandSpec[] = [];
+    const result = await runCliAsync(["start", "--runtime", "docker"], {
+      processExecutor: recordingExecutor(executed, {
+        failAt: 2,
+        stderr: "port is already allocated",
+      }),
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("port is already allocated");
+    expect(result.stderr).toContain("rollback commands executed: 8");
+    expect(executed).toHaveLength(10);
+  });
+
   test("renders async JSON doctor diagnostics with detected runtimes", async () => {
     const result = await runCliAsync(["doctor", "--json"], {
       runtimeAdapters: {
@@ -271,6 +313,38 @@ describe("CLI runner", () => {
     );
   });
 });
+
+function recordingExecutor(
+  executed: CommandSpec[],
+  options: {
+    readonly failAt?: number;
+    readonly stderr?: string;
+  } = {},
+): ProcessExecutor {
+  let count = 0;
+  return {
+    run: async (command) => {
+      executed.push(command);
+      count += 1;
+      if (options.failAt === count) {
+        return commandResult(1, "", options.stderr ?? "failed");
+      }
+      return commandResult(0, "ok", "");
+    },
+  };
+}
+
+function commandResult(
+  exitCode: number,
+  stdout: string,
+  stderr: string,
+): CommandResult {
+  return {
+    exitCode,
+    stdout,
+    stderr,
+  };
+}
 
 function fakeRuntime(status: RuntimeStatus): RuntimeAdapter {
   return {

@@ -8,6 +8,12 @@ import {
 } from "../doctor/checks.ts";
 import { packageName, projectVersion } from "../index.ts";
 import {
+  createBunProcessExecutor,
+  redactCommand,
+  type ProcessExecutor,
+} from "../process/command.ts";
+import { executeRuntimePlan } from "../runtime/lifecycle.ts";
+import {
   createRuntimeCommandPlan,
   createRuntimePlanSummary,
   type RuntimePlanCommand,
@@ -40,6 +46,7 @@ export interface CliEnvironment {
   readonly configSources?: Omit<ConfigSources, "cli" | "env">;
   readonly runtimeAdapters?: Partial<Record<RuntimeKind, RuntimeAdapter>>;
   readonly hostChecks?: HostDoctorChecks;
+  readonly processExecutor?: ProcessExecutor;
 }
 
 export interface DoctorDiagnostics {
@@ -166,7 +173,6 @@ export async function runCliAsync(
 
   if (
     result.exitCode !== 0 ||
-    parsed.command !== "doctor" ||
     parsed.errors.length > 0 ||
     result.action !== undefined
   ) {
@@ -183,6 +189,18 @@ export async function runCliAsync(
     return result;
   }
 
+  if (
+    parsed.command !== undefined &&
+    isRuntimePlanCommand(parsed.command) &&
+    !parsed.json
+  ) {
+    return executeRuntimeCommand(parsed.command, resolved.config, environment);
+  }
+
+  if (parsed.command !== "doctor") {
+    return result;
+  }
+
   const diagnostics = await detectRuntimes(resolved.config, environment);
 
   if (parsed.json) {
@@ -196,6 +214,59 @@ export async function runCliAsync(
       renderDoctorDiagnostics(diagnostics),
     ].join("\n"),
   );
+}
+
+async function executeRuntimeCommand(
+  command: RuntimePlanCommand,
+  config: AthenaLocalConfig,
+  environment: CliEnvironment,
+): Promise<CliResult> {
+  if (config.containerRuntime === undefined) {
+    return {
+      exitCode: 2,
+      stdout: "",
+      stderr:
+        "Runtime command requires --runtime, ATHENA_LOCAL_CONTAINER_RUNTIME, or saved local configuration.\n",
+    };
+  }
+
+  const plan = createRuntimeCommandPlan({
+    runtime: config.containerRuntime,
+    command,
+    projectName: config.projectId,
+    networkName: config.projectId,
+  });
+  const rollback =
+    command === "start" || command === "reset"
+      ? createRuntimeCommandPlan({
+          runtime: config.containerRuntime,
+          command: "destroy",
+          projectName: config.projectId,
+          networkName: config.projectId,
+        }).commands
+      : [];
+  const lifecycle = await executeRuntimePlan(
+    {
+      commands: plan.commands,
+      rollbackCommands: rollback,
+    },
+    environment.processExecutor ?? createBunProcessExecutor(),
+  );
+
+  if (lifecycle.ok) {
+    return ok(
+      `${command}: executed ${lifecycle.executed.length} ${config.containerRuntime} command(s).\n`,
+    );
+  }
+
+  return {
+    exitCode: 1,
+    stdout: "",
+    stderr:
+      `${command}: failed after ${lifecycle.executed.length} command(s): ${lifecycle.message ?? "Runtime command failed."}\n` +
+      `failed command: ${formatCommand(redactCommand(lifecycle.failedCommand ?? plan.commands[0]!))}\n` +
+      `rollback commands executed: ${lifecycle.rollbackExecuted.length}\n`,
+  };
 }
 
 function ok(stdout: string): CliResult {
@@ -338,6 +409,13 @@ function checksFor(command: string): readonly string[] {
     ];
   }
   return ["configuration"];
+}
+
+function formatCommand(command: {
+  readonly executable: string;
+  readonly args: readonly string[];
+}): string {
+  return [command.executable, ...command.args].join(" ");
 }
 
 function isRuntimePlanCommand(command: string): command is RuntimePlanCommand {

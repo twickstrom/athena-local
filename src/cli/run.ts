@@ -30,6 +30,7 @@ import {
   seedLocalCatalog,
   type SeedExecutor,
 } from "../seed/seed.ts";
+import { SigV4BucketManager, type BucketManager } from "../storage/buckets.ts";
 import { TrinoClient } from "../trino/client.ts";
 import {
   createRuntimeCommandPlan,
@@ -69,6 +70,7 @@ export interface CliEnvironment {
   readonly readinessOptions?: ReadinessWaitOptions;
   readonly runtimeConfigWriter?: () => Promise<RuntimeConfigPaths>;
   readonly seedExecutor?: SeedExecutor;
+  readonly bucketManager?: BucketManager;
 }
 
 export interface DoctorDiagnostics {
@@ -261,6 +263,12 @@ async function runSeed(
         schema: "default",
       }),
     );
+  const bucketManager = environment.bucketManager ?? defaultBucketManager(config, environment);
+  if (bucketManager !== undefined) {
+    for (const bucket of seedBuckets(config, environment.env ?? {})) {
+      await bucketManager.ensureBucket(bucket);
+    }
+  }
   const result = await seedLocalCatalog(
     executor,
     createDefaultSeedStatements({
@@ -276,6 +284,50 @@ async function runSeed(
   }
 
   return ok(`seed: executed ${result.statements.length} statement(s).\n`);
+}
+
+function defaultBucketManager(
+  config: AthenaLocalConfig,
+  environment: CliEnvironment,
+): BucketManager | undefined {
+  if (config.storageBackend !== "minio") {
+    return undefined;
+  }
+  return new SigV4BucketManager({
+    endpoint:
+      environment.env?.ATHENA_LOCAL_MINIO_ENDPOINT ??
+      environment.env?.S3_ENDPOINT ??
+      "http://127.0.0.1:9000",
+    region: config.awsRegion,
+    accessKeyId: environment.env?.AWS_ACCESS_KEY_ID ?? "local",
+    secretAccessKey: environment.env?.AWS_SECRET_ACCESS_KEY ?? "local-secret",
+  });
+}
+
+function seedBuckets(
+  config: AthenaLocalConfig,
+  env: Record<string, string | undefined>,
+): readonly string[] {
+  const buckets = new Set<string>();
+  if (config.storageBackend === "minio") {
+    buckets.add("athena-local");
+  }
+  buckets.add(parseBucket(env.ATHENA_OUTPUT_LOCATION ?? "s3://athena-local-results/local/"));
+  if (config.s3Bucket !== undefined) {
+    buckets.add(config.s3Bucket);
+  }
+  return [...buckets];
+}
+
+function parseBucket(location: string): string {
+  const withoutScheme = location.startsWith("s3://")
+    ? location.slice("s3://".length)
+    : location;
+  const bucket = withoutScheme.split("/")[0];
+  if (bucket === undefined || bucket.length === 0) {
+    throw new Error("S3 location must include a bucket.");
+  }
+  return bucket;
 }
 
 async function inspectRuntimeStatus(

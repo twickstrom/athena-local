@@ -9,6 +9,7 @@ import type {
   ProcessExecutor,
 } from "../../src/process/command.ts";
 import type { ReadinessProbes } from "../../src/runtime/readiness.ts";
+import type { BucketManager } from "../../src/storage/buckets.ts";
 import type { RuntimeAdapter, RuntimeStatus } from "../../src/runtime/types.ts";
 
 describe("CLI arguments", () => {
@@ -214,23 +215,26 @@ describe("CLI runner", () => {
   });
 
   test("executes seed statements through async CLI", async () => {
-    const executed: string[] = [];
+    const events: string[] = [];
     const result = await runCliAsync(["seed"], {
+      bucketManager: recordingBucketManager(events),
       seedExecutor: {
         execute: async (sql) => {
-          executed.push(sql);
+          events.push(`sql:${sql}`);
         },
       },
     });
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("seed: executed 2 statement(s).\n");
-    expect(executed).toHaveLength(2);
-    expect(executed[0]).toContain("CREATE SCHEMA IF NOT EXISTS");
+    expect(events[0]).toBe("bucket:athena-local");
+    expect(events[1]).toBe("bucket:athena-local-results");
+    expect(events[2]).toContain("sql:CREATE SCHEMA IF NOT EXISTS");
   });
 
   test("renders seed JSON output", async () => {
     const result = await runCliAsync(["seed", "--json"], {
+      bucketManager: recordingBucketManager([]),
       seedExecutor: {
         execute: async () => {},
       },
@@ -482,6 +486,14 @@ function fakeRuntimeConfigPaths(): RuntimeConfigPaths {
     root: "/tmp/athena-local-runtime",
     trinoConfigDir: "/tmp/athena-local-runtime/trino",
     hiveConfigDir: "/tmp/athena-local-runtime/hive",
+  };
+}
+
+function recordingBucketManager(events: string[]): BucketManager {
+  return {
+    ensureBucket: async (bucket) => {
+      events.push(`bucket:${bucket}`);
+    },
   };
 }
 

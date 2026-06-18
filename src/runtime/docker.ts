@@ -124,6 +124,8 @@ export class DockerRuntimeAdapter implements RuntimeAdapter {
       this.#containerName(service.name),
       "--network",
       this.#networkName,
+      "--network-alias",
+      service.name,
       "--label",
       `athena-local.project=${this.#projectName}`,
       ...service.ports.flatMap((port) => [
@@ -151,6 +153,8 @@ export class DockerRuntimeAdapter implements RuntimeAdapter {
     return docker(
       "run",
       "--rm",
+      "--user",
+      "0",
       ...task.volumes.flatMap((volume) => [
         "--volume",
         `${this.#volumeSource(volume)}:${volume.target}${volume.readonly === true ? ":ro" : ""}`,

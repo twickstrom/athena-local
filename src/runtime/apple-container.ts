@@ -148,6 +148,8 @@ export class AppleContainerRuntimeAdapter implements RuntimeAdapter {
     return container(
       "run",
       "--rm",
+      "--user",
+      "0",
       ...task.volumes.flatMap((volume) => [
         "--volume",
         `${this.#volumeSource(volume)}:${volume.target}${volume.readonly === true ? ":ro" : ""}`,

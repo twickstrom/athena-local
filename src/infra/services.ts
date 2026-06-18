@@ -122,7 +122,15 @@ export function createLocalStackServices(
       env: {
         SERVICE_NAME: "metastore",
         DB_DRIVER: "postgres",
-        HIVE_AUX_JARS_PATH: "/opt/hive/auxlib/postgresql.jar",
+        // The PostgreSQL JDBC driver (copied in by the init task) plus the
+        // hadoop-aws S3A filesystem and AWS SDK bundle, which ship in the Hive
+        // image but outside the default classpath. The metastore needs S3A to
+        // create database/table directories on object storage (s3a:// scheme).
+        HIVE_AUX_JARS_PATH: [
+          "/opt/hive/auxlib/postgresql.jar",
+          "/opt/hadoop/share/hadoop/tools/lib/hadoop-aws-3.3.6.jar",
+          "/opt/hadoop/share/hadoop/tools/lib/aws-java-sdk-bundle-1.12.367.jar",
+        ].join(":"),
       },
       ports: [
         {

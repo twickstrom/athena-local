@@ -59,7 +59,8 @@ function trinoConfig(): string {
 }
 
 function trinoNode(): string {
-  return ["node.environment=athena-local", "node.data-dir=/data/trino", ""].join(
+  // node.environment must match [a-z0-9][_a-z0-9]* (no hyphens).
+  return ["node.environment=athena_local", "node.data-dir=/data/trino", ""].join(
     "\n",
   );
 }

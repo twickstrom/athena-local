@@ -35,20 +35,36 @@ export function createAthenaLocalHandler(
   const repository = new QueryExecutionRepository(state.database);
   const facadeConfig = facadeConfigFromEnv(env);
   const output = parseOutputLocation(facadeConfig.defaultOutputLocation);
+  const isMinio = resolved.config.storageBackend === "minio";
   const storageOptions: BunS3StorageOptions = {
     kind: resolved.config.storageBackend,
     bucket: output.bucket,
     region: resolved.config.awsRegion,
     ...optionalString(
       "endpoint",
-      resolved.config.storageBackend === "minio"
+      isMinio
         ? env.ATHENA_LOCAL_MINIO_ENDPOINT ??
             env.S3_ENDPOINT ??
             `http://127.0.0.1:${resolved.config.ports.minio}`
         : env.AWS_ENDPOINT_URL_S3,
     ),
-    ...optionalString("accessKeyId", env.AWS_ACCESS_KEY_ID),
-    ...optionalString("secretAccessKey", env.AWS_SECRET_ACCESS_KEY),
+    // For the local MinIO backend, default to the stack's built-in development
+    // credentials so the facade works out of the box; explicit env still wins.
+    // For the AWS S3 backend, only use explicitly provided credentials.
+    ...optionalString(
+      "accessKeyId",
+      isMinio
+        ? env.AWS_ACCESS_KEY_ID ?? env.ATHENA_LOCAL_MINIO_ACCESS_KEY ?? "local"
+        : env.AWS_ACCESS_KEY_ID,
+    ),
+    ...optionalString(
+      "secretAccessKey",
+      isMinio
+        ? env.AWS_SECRET_ACCESS_KEY ??
+            env.ATHENA_LOCAL_MINIO_SECRET_KEY ??
+            "local-secret"
+        : env.AWS_SECRET_ACCESS_KEY,
+    ),
     ...optionalString("sessionToken", env.AWS_SESSION_TOKEN),
   };
   const storage = new BunS3Storage(storageOptions);

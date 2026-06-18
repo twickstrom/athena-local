@@ -353,6 +353,19 @@ async function executeRuntimeCommand(
         };
       }
     }
+    if (command === "start") {
+      return {
+        exitCode: 0,
+        stdout:
+          `${command}: executed ${lifecycle.executed.length} ${config.containerRuntime} command(s).\n` +
+          `Starting Athena facade on port ${config.ports.athena}.\n`,
+        stderr: "",
+        action: {
+          type: "serve-facade",
+          port: config.ports.athena,
+        },
+      };
+    }
     return ok(
       `${command}: executed ${lifecycle.executed.length} ${config.containerRuntime} command(s).\n`,
     );

@@ -246,7 +246,13 @@ describe("CLI runner", () => {
     });
 
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("start: executed 15 docker command(s).\n");
+    expect(result.stdout).toBe(
+      "start: executed 15 docker command(s).\nStarting Athena facade on port 4567.\n",
+    );
+    expect(result.action).toEqual({
+      type: "serve-facade",
+      port: 4567,
+    });
     expect(executed[0]).toEqual({
       executable: "docker",
       args: ["network", "create", "athena-local"],

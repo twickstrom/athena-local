@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { DockerRuntimeAdapter } from "../../src/runtime/docker.ts";
+import {
+  DockerRuntimeAdapter,
+  parseDockerVersion,
+} from "../../src/runtime/docker.ts";
+import type { CommandSpec, ProcessExecutor } from "../../src/process/command.ts";
 import type { RuntimeServiceDefinition } from "../../src/runtime/types.ts";
 
 const service: RuntimeServiceDefinition = {
@@ -98,7 +102,7 @@ describe("Docker runtime adapter command generation", () => {
       },
       {
         executable: "docker",
-        args: ["volume", "rm", "athena-local-trino"],
+        args: ["volume", "rm", "athena-local-trino-data"],
       },
       {
         executable: "docker",
@@ -122,4 +126,69 @@ describe("Docker runtime adapter command generation", () => {
       ]),
     ).toThrow("Service image must be pinned and must not use latest.");
   });
+
+  test("detects Docker availability and version through the executor", async () => {
+    const commands: CommandSpec[] = [];
+    const adapter = new DockerRuntimeAdapter({
+      projectName: "athena-local",
+      networkName: "athena-local",
+      executor: fakeExecutor(commands, {
+        exitCode: 0,
+        stdout: "27.5.1\n",
+        stderr: "",
+      }),
+    });
+
+    await expect(adapter.detect()).resolves.toEqual({
+      runtime: "docker",
+      available: true,
+      version: "27.5.1",
+      services: [],
+    });
+    expect(commands).toEqual([
+      {
+        executable: "docker",
+        args: ["version", "--format", "{{.Server.Version}}"],
+      },
+    ]);
+  });
+
+  test("reports Docker detection failures without throwing", async () => {
+    const adapter = new DockerRuntimeAdapter({
+      projectName: "athena-local",
+      networkName: "athena-local",
+      executor: fakeExecutor([], {
+        exitCode: 1,
+        stdout: "",
+        stderr: "Cannot connect to the Docker daemon\n",
+      }),
+    });
+
+    await expect(adapter.detect()).resolves.toEqual({
+      runtime: "docker",
+      available: false,
+      services: [],
+      message: "Cannot connect to the Docker daemon",
+    });
+  });
+
+  test("parses Docker versions from command output", () => {
+    expect(parseDockerVersion("27.5.1\n")).toBe("27.5.1");
+    expect(parseDockerVersion("Docker version 27.5.1, build abc123")).toBe(
+      "27.5.1",
+    );
+    expect(parseDockerVersion("")).toBeUndefined();
+  });
 });
+
+function fakeExecutor(
+  commands: CommandSpec[],
+  result: { readonly exitCode: number; readonly stdout: string; readonly stderr: string },
+): ProcessExecutor {
+  return {
+    run: async (command) => {
+      commands.push(command);
+      return result;
+    },
+  };
+}

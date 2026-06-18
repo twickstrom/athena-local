@@ -54,6 +54,34 @@ export function redactCommand(command: CommandSpec): CommandSpec {
   };
 }
 
+export function createBunProcessExecutor(): ProcessExecutor {
+  return {
+    run: async (command) => {
+      const subprocess = Bun.spawn([command.executable, ...command.args], {
+        env: {
+          ...Bun.env,
+          ...(command.env ?? {}),
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+        ...(command.cwd === undefined ? {} : { cwd: command.cwd }),
+      });
+
+      const [stdout, stderr, exitCode] = await Promise.all([
+        new Response(subprocess.stdout).text(),
+        new Response(subprocess.stderr).text(),
+        subprocess.exited,
+      ]);
+
+      return {
+        exitCode,
+        stdout,
+        stderr,
+      };
+    },
+  };
+}
+
 function validateExecutable(executable: string): void {
   if (executable.length === 0 || !safeExecutablePattern.test(executable)) {
     throw new Error("Executable must be a non-empty path-like token.");

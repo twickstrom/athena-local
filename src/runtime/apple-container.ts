@@ -1,4 +1,9 @@
-import { createCommandSpec, type CommandSpec } from "../process/command.ts";
+import {
+  createBunProcessExecutor,
+  createCommandSpec,
+  type CommandSpec,
+  type ProcessExecutor,
+} from "../process/command.ts";
 import {
   type RuntimeAdapter,
   type RuntimeServiceDefinition,
@@ -9,24 +14,44 @@ import {
 export interface AppleContainerAdapterOptions {
   readonly projectName: string;
   readonly networkName: string;
+  readonly executor?: ProcessExecutor;
 }
 
 export class AppleContainerRuntimeAdapter implements RuntimeAdapter {
   readonly kind = "apple-container";
   readonly #projectName: string;
   readonly #networkName: string;
+  readonly #executor: ProcessExecutor;
 
   constructor(options: AppleContainerAdapterOptions) {
     this.#projectName = options.projectName;
     this.#networkName = options.networkName;
+    this.#executor = options.executor ?? createBunProcessExecutor();
   }
 
   async detect(): Promise<RuntimeStatus> {
+    const result = await this.#executor.run(container("--version"));
+
+    if (result.exitCode !== 0) {
+      return {
+        runtime: "apple-container",
+        available: false,
+        services: [],
+        message: compactMessage(
+          result.stderr,
+          result.stdout,
+          "Apple container is not available.",
+        ),
+      };
+    }
+
+    const version = parseAppleContainerVersion(result.stdout);
+
     return {
       runtime: "apple-container",
-      available: false,
+      available: true,
       services: [],
-      message: "Runtime detection requires a process executor and is implemented in a later milestone.",
+      ...(version === undefined ? {} : { version }),
     };
   }
 
@@ -114,4 +139,13 @@ export class AppleContainerRuntimeAdapter implements RuntimeAdapter {
 
 function container(...args: readonly string[]): CommandSpec {
   return createCommandSpec("container", args);
+}
+
+export function parseAppleContainerVersion(output: string): string | undefined {
+  return output.match(/\d+(?:\.\d+){1,3}/)?.[0];
+}
+
+function compactMessage(...values: readonly string[]): string {
+  const message = values.map((value) => value.trim()).find((value) => value.length > 0);
+  return message ?? "Apple container is not available.";
 }

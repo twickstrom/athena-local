@@ -1,4 +1,9 @@
-import { createCommandSpec, type CommandSpec } from "../process/command.ts";
+import {
+  createBunProcessExecutor,
+  createCommandSpec,
+  type CommandSpec,
+  type ProcessExecutor,
+} from "../process/command.ts";
 import {
   type RuntimeAdapter,
   type RuntimeServiceDefinition,
@@ -9,25 +14,43 @@ import {
 export interface DockerAdapterOptions {
   readonly projectName: string;
   readonly networkName: string;
+  readonly executor?: ProcessExecutor;
 }
 
 export class DockerRuntimeAdapter implements RuntimeAdapter {
   readonly kind = "docker";
   readonly #projectName: string;
   readonly #networkName: string;
+  readonly #executor: ProcessExecutor;
 
   constructor(options: DockerAdapterOptions) {
     this.#projectName = options.projectName;
     this.#networkName = options.networkName;
+    this.#executor = options.executor ?? createBunProcessExecutor();
   }
 
   async detect(): Promise<RuntimeStatus> {
+    const result = await this.#executor.run(
+      docker("version", "--format", "{{.Server.Version}}"),
+    );
+
+    if (result.exitCode !== 0) {
+      return {
+        runtime: "docker",
+        available: false,
+        services: [],
+        message: compactMessage(result.stderr, result.stdout, "Docker is not available."),
+      };
+    }
+
+    const version = parseDockerVersion(result.stdout);
+
     return {
       runtime: "docker",
-      available: false,
+      available: true,
       services: [],
-      message: "Runtime detection requires a process executor and is implemented in a later milestone.",
-    } as RuntimeStatus;
+      ...(version === undefined ? {} : { version }),
+    };
   }
 
   planStart(services: readonly RuntimeServiceDefinition[]): readonly CommandSpec[] {
@@ -53,7 +76,9 @@ export class DockerRuntimeAdapter implements RuntimeAdapter {
     return [
       ...services.flatMap((service) => [
         docker("rm", "-f", this.#containerName(service.name)),
-        docker("volume", "rm", this.#volumePrefix(service.name)),
+        ...service.volumes.map((volume) =>
+          docker("volume", "rm", this.#volumePrefix(volume.name)),
+        ),
       ]),
       docker("network", "rm", this.#networkName),
     ];
@@ -112,4 +137,13 @@ export class DockerRuntimeAdapter implements RuntimeAdapter {
 
 function docker(...args: readonly string[]): CommandSpec {
   return createCommandSpec("docker", args);
+}
+
+export function parseDockerVersion(output: string): string | undefined {
+  return output.match(/\d+(?:\.\d+){1,3}/)?.[0];
+}
+
+function compactMessage(...values: readonly string[]): string {
+  const message = values.map((value) => value.trim()).find((value) => value.length > 0);
+  return message ?? "Docker is not available.";
 }

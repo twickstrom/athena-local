@@ -14,7 +14,7 @@ describe("runtime plan summaries", () => {
       serviceCount: 4,
       startCommandCount: 16,
       stopCommandCount: 4,
-      destroyCommandCount: 9,
+      destroyCommandCount: 8,
       services: ["postgres", "minio", "hive-metastore", "trino"],
     });
   });

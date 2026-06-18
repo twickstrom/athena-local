@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { AppleContainerRuntimeAdapter } from "../../src/runtime/apple-container.ts";
+import {
+  AppleContainerRuntimeAdapter,
+  parseAppleContainerVersion,
+} from "../../src/runtime/apple-container.ts";
+import type { CommandSpec, ProcessExecutor } from "../../src/process/command.ts";
 import type { RuntimeServiceDefinition } from "../../src/runtime/types.ts";
 
 const service: RuntimeServiceDefinition = {
@@ -130,4 +134,67 @@ describe("Apple container runtime adapter command generation", () => {
       ]),
     ).toThrow("Service name must be a safe identifier.");
   });
+
+  test("detects Apple container availability and version through the executor", async () => {
+    const commands: CommandSpec[] = [];
+    const adapter = new AppleContainerRuntimeAdapter({
+      projectName: "athena-local",
+      networkName: "athena-local",
+      executor: fakeExecutor(commands, {
+        exitCode: 0,
+        stdout: "container version 0.2.1\n",
+        stderr: "",
+      }),
+    });
+
+    await expect(adapter.detect()).resolves.toEqual({
+      runtime: "apple-container",
+      available: true,
+      version: "0.2.1",
+      services: [],
+    });
+    expect(commands).toEqual([
+      {
+        executable: "container",
+        args: ["--version"],
+      },
+    ]);
+  });
+
+  test("reports Apple container detection failures without throwing", async () => {
+    const adapter = new AppleContainerRuntimeAdapter({
+      projectName: "athena-local",
+      networkName: "athena-local",
+      executor: fakeExecutor([], {
+        exitCode: 127,
+        stdout: "",
+        stderr: "container: command not found\n",
+      }),
+    });
+
+    await expect(adapter.detect()).resolves.toEqual({
+      runtime: "apple-container",
+      available: false,
+      services: [],
+      message: "container: command not found",
+    });
+  });
+
+  test("parses Apple container versions from command output", () => {
+    expect(parseAppleContainerVersion("0.2.1\n")).toBe("0.2.1");
+    expect(parseAppleContainerVersion("container version 0.2.1")).toBe("0.2.1");
+    expect(parseAppleContainerVersion("")).toBeUndefined();
+  });
 });
+
+function fakeExecutor(
+  commands: CommandSpec[],
+  result: { readonly exitCode: number; readonly stdout: string; readonly stderr: string },
+): ProcessExecutor {
+  return {
+    run: async (command) => {
+      commands.push(command);
+      return result;
+    },
+  };
+}

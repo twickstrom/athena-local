@@ -40,7 +40,7 @@ This is deliberately **application-integration parity, not a full AWS emulator.*
 
 ## Project status
 
-Athena Local is pre-1.0 and under active development. The application-integration surface described in [Supported Athena Operations](#supported-athena-operations) is implemented and tested; interfaces may still change before 1.0, and changes are recorded in [CHANGELOG.md](CHANGELOG.md). Compatibility claims are backed by tests against the real AWS SDK — where behavior is approximate or unimplemented, it is documented rather than silently faked.
+Athena Local is pre-1.0 and under active development. The application-integration surface described in the [AWS SDK Athena API Support Matrix](#aws-sdk-athena-api-support-matrix) is implemented and tested; interfaces may still change before 1.0, and changes are recorded in [CHANGELOG.md](CHANGELOG.md). Compatibility claims are backed by tests against the real AWS SDK — where behavior is approximate or unimplemented, it is documented rather than silently faked.
 
 ## Key Capabilities
 
@@ -104,15 +104,44 @@ Athena Local focuses on the application behaviors most projects depend on:
 
 It is not a full AWS emulator. IAM, Lake Formation, KMS, Glue crawlers, billing, CloudWatch, and every Athena engine edge case remain outside the local compatibility target.
 
-## Supported Athena Operations
+## AWS SDK Athena API Support Matrix
 
-| Operation | Support | Notes |
-| --- | --- | --- |
-| `StartQueryExecution` | Supported | Submits SQL asynchronously and returns a query execution ID. |
-| `GetQueryExecution` | Supported | Returns state, context, output location, errors, and basic statistics. |
-| `GetQueryResults` | Supported | Returns metadata, header row, rows, `MaxResults`, and `NextToken`. |
-| `StopQueryExecution` | Supported | Cancels active Trino execution and persists `CANCELLED`. |
-| Other Athena operations | Unsupported | The project intentionally avoids broad Athena API emulation. |
+The `@aws-sdk/client-athena` v3 client exposes ~70 operations. Athena Local implements the four that make up the synchronous query path most applications depend on; the request/response shapes are exercised by the real SDK in tests. Every other operation returns a structured `InvalidRequestException` (`Unsupported Athena operation: <name>`) rather than a partial emulation, so application code fails loudly instead of trusting a fake.
+
+**Implementation type** distinguishes how an operation is backed:
+
+- **Full** — backed by the real engine (Trino) and persisted query state; behaves like Athena for the supported surface.
+- **Unsupported** — routed but explicitly rejected with an Athena-style error.
+- **Not planned** — outside the project's scope (see [Known Limitations](#known-limitations)).
+
+### Implemented
+
+| Operation | Status | Implementation | Tested by | Notes |
+| --- | :---: | --- | --- | --- |
+| `StartQueryExecution` | ✅ | Full | `e2e`, `protocol`, `unit` | Submits SQL to Trino asynchronously, returns a query execution ID, honors `ClientRequestToken` idempotency and `ResultConfiguration.OutputLocation`. |
+| `GetQueryExecution` | ✅ | Full | `e2e`, `integration`, `protocol`, `unit` | Returns state (`QUEUED`/`RUNNING`/`SUCCEEDED`/`FAILED`/`CANCELLED`), context, output location, `StateChangeReason`, and statistics. |
+| `GetQueryResults` | ✅ | Full | `e2e`, `integration`, `unit` | Returns `ResultSetMetadata`, header row, data rows, with `MaxResults` + opaque `NextToken` pagination. |
+| `StopQueryExecution` | ✅ | Full | `integration`, `protocol`, `unit` | Cancels the running Trino query and persists `CANCELLED`. |
+
+### Not implemented
+
+Every operation below is routed and rejected with `InvalidRequestException`. They are grouped by capability; none are emulated.
+
+| Capability area | Operations | Status | Why |
+| --- | --- | :---: | --- |
+| Batch query lookups | `BatchGetQueryExecution`, `BatchGetNamedQuery`, `BatchGetPreparedStatement` | ❌ | Not planned — batch convenience wrappers over single-item reads outside the core path. |
+| Query history | `ListQueryExecutions`, `GetQueryRuntimeStatistics` | ❌ | Not planned — Athena Local persists state in SQLite, not as a queryable Athena history API. |
+| Workgroups | `CreateWorkGroup`, `GetWorkGroup`, `UpdateWorkGroup`, `DeleteWorkGroup`, `ListWorkGroups` | ❌ | Not planned — workgroups are recorded for response shape only; no policy/limit enforcement. |
+| Data Catalog / Glue | `CreateDataCatalog`, `GetDataCatalog`, `UpdateDataCatalog`, `DeleteDataCatalog`, `ListDataCatalogs`, `GetDatabase`, `ListDatabases`, `GetTableMetadata`, `ListTableMetadata` | ❌ | Not planned — catalog metadata lives in Hive Metastore and is queried through Trino SQL, not the Athena/Glue catalog APIs. |
+| Named queries | `CreateNamedQuery`, `GetNamedQuery`, `UpdateNamedQuery`, `DeleteNamedQuery`, `ListNamedQueries` | ❌ | Not planned — saved-query management is not part of the execution path. |
+| Prepared statements | `CreatePreparedStatement`, `GetPreparedStatement`, `UpdatePreparedStatement`, `DeletePreparedStatement`, `ListPreparedStatements` | ❌ | Not planned — server-side prepared statements are not modeled. |
+| Notebooks & Spark sessions | `CreateNotebook`, `ImportNotebook`, `ExportNotebook`, `UpdateNotebook`, `DeleteNotebook`, `GetNotebookMetadata`, `UpdateNotebookMetadata`, `ListNotebookMetadata`, `ListNotebookSessions`, `CreatePresignedNotebookUrl`, `StartSession`, `GetSession`, `GetSessionStatus`, `GetSessionEndpoint`, `ListSessions`, `TerminateSession` | ❌ | Not planned — the PySpark/notebook engine is not part of an SQL-on-Trino facade. |
+| Calculations (Spark) | `StartCalculationExecution`, `StopCalculationExecution`, `GetCalculationExecution`, `GetCalculationExecutionCode`, `GetCalculationExecutionStatus`, `ListCalculationExecutions` | ❌ | Not planned — Spark calculation execution is out of scope. |
+| Capacity reservations | `CreateCapacityReservation`, `GetCapacityReservation`, `UpdateCapacityReservation`, `CancelCapacityReservation`, `DeleteCapacityReservation`, `ListCapacityReservations`, `GetCapacityAssignmentConfiguration`, `PutCapacityAssignmentConfiguration` | ❌ | Not planned — provisioned capacity is an AWS billing/scheduling concept with no local equivalent. |
+| Engine / executors / DPU | `ListEngineVersions`, `ListExecutors`, `ListApplicationDPUSizes`, `GetResourceDashboard` | ❌ | Not planned — AWS-managed runtime metadata. |
+| Tagging | `TagResource`, `UntagResource`, `ListTagsForResource` | ❌ | Not planned — no AWS resource model to tag locally. |
+
+> If your application depends on one of these, open an issue describing the use case. The bar for adding an operation is a real application-integration need plus AWS SDK contract coverage — not breadth for its own sake.
 
 ## Supported Query Behavior
 
@@ -605,7 +634,7 @@ Athena Local targets application-integration parity. Knowing precisely where it 
 - The local object store is **MinIO** by default. Athena Local never ships a custom S3 server; S3 semantics are exactly MinIO's (or real S3 when opted in).
 
 **API surface**
-- Only the four operations in [Supported Athena Operations](#supported-athena-operations) are implemented. Other Athena/Glue APIs return an unsupported-operation error rather than a partial emulation.
+- Only the four operations in the [AWS SDK Athena API Support Matrix](#aws-sdk-athena-api-support-matrix) are implemented. Other Athena/Glue APIs return an unsupported-operation error rather than a partial emulation.
 - **SigV4 signatures are accepted but not verified.** Requests are routed by `X-Amz-Target`; the facade does not authenticate or authorize. This is a local development tool — do not expose it as a network service.
 - **Workgroup enforcement is minimal** — workgroups are recorded for response shape, not enforced for limits, encryption, or output-location overrides.
 

@@ -1,84 +1,18 @@
 #!/usr/bin/env bun
 
-import { packageName, projectStatus } from "./index.ts";
+import { runCli } from "./cli/run.ts";
 
-const commands = [
-  "configure",
-  "doctor",
-  "start",
-  "stop",
-  "status",
-  "reset",
-  "destroy",
-  "seed",
-] as const;
+const result = runCli(Bun.argv.slice(2), {
+  env: Bun.env,
+  isTty: process.stdin.isTTY === true && process.stdout.isTTY === true,
+});
 
-type Command = (typeof commands)[number];
-
-function isCommand(value: string): value is Command {
-  return commands.includes(value as Command);
+if (result.stdout.length > 0) {
+  console.log(result.stdout.trimEnd());
 }
 
-function printHelp(): void {
-  console.log(`${packageName} (${projectStatus})
-
-Usage:
-  athena-local <command> [--json]
-  athena-local --help
-  athena-local --version
-
-Commands:
-  configure   Planned interactive/noninteractive setup
-  doctor      Planned environment and safety checks
-  start       Planned local infrastructure startup
-  stop        Planned local infrastructure stop without data deletion
-  status      Planned local service status
-  reset       Planned local reset
-  destroy     Planned local destroy
-  seed        Planned deterministic fixture seeding
-
-Runtime operations are not implemented yet.`);
+if (result.stderr.length > 0) {
+  console.error(result.stderr.trimEnd());
 }
 
-function printJson(command: Command): void {
-  console.log(
-    JSON.stringify(
-      {
-        command,
-        implemented: false,
-        packageName,
-        status: projectStatus,
-        message: "Runtime operations are planned but not implemented yet.",
-      },
-      null,
-      2,
-    ),
-  );
-}
-
-const args = Bun.argv.slice(2);
-const firstArg = args[0];
-
-if (firstArg === undefined || firstArg === "--help" || firstArg === "-h") {
-  printHelp();
-  process.exit(0);
-}
-
-if (firstArg === "--version" || firstArg === "-v") {
-  console.log("0.0.0");
-  process.exit(0);
-}
-
-if (!isCommand(firstArg)) {
-  console.error(`Unknown command: ${firstArg}`);
-  printHelp();
-  process.exit(2);
-}
-
-if (args.includes("--json")) {
-  printJson(firstArg);
-} else {
-  console.log(
-    `${packageName} ${firstArg}: runtime operations are planned but not implemented yet.`,
-  );
-}
+process.exit(result.exitCode);

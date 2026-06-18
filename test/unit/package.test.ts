@@ -2,16 +2,16 @@ import { describe, expect, test } from "bun:test";
 import {
   packageName,
   plannedAthenaOperations,
-  projectStatus,
+  projectVersion,
 } from "../../src/index.ts";
 
 describe("package scaffold", () => {
-  test("identifies the project without claiming runtime support", () => {
+  test("identifies the package", () => {
     expect(packageName).toBe("athena-local");
-    expect(projectStatus).toBe("pre-alpha-planning");
+    expect(projectVersion).toBe("0.0.0");
   });
 
-  test("documents the planned MVP Athena operations", () => {
+  test("documents the supported Athena operation surface", () => {
     expect(plannedAthenaOperations).toEqual([
       "StartQueryExecution",
       "GetQueryExecution",

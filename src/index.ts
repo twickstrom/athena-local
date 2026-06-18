@@ -1,5 +1,5 @@
 export const packageName = "athena-local";
-export const projectStatus = "pre-alpha-planning";
+export const projectVersion = "0.0.0";
 
 export const plannedAthenaOperations = [
   "StartQueryExecution",

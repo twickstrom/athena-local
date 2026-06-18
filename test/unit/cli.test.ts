@@ -88,4 +88,19 @@ describe("CLI runner", () => {
     expect(result.stdout).toContain("athena-local <command>");
     expect(result.stderr).toBe("");
   });
+
+  test("gates facade server startup behind explicit facade-only flag", () => {
+    const placeholder = runCli(["start"]);
+    expect(placeholder.action).toBeUndefined();
+    expect(placeholder.stdout).toContain(
+      "runtime behavior will be added by the runtime adapter milestone",
+    );
+
+    const facadeOnly = runCli(["start", "--facade-only", "--port", "4568"]);
+    expect(facadeOnly.action).toEqual({
+      type: "serve-facade",
+      port: 4568,
+    });
+    expect(facadeOnly.stdout).toContain("Starting Athena facade on port 4568.");
+  });
 });

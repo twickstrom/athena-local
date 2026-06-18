@@ -7,7 +7,14 @@ export interface CliResult {
   readonly exitCode: number;
   readonly stdout: string;
   readonly stderr: string;
+  readonly action?: CliAction;
 }
+
+export type CliAction =
+  | {
+      readonly type: "serve-facade";
+      readonly port: number;
+    };
 
 export interface CliEnvironment {
   readonly env?: Record<string, string | undefined>;
@@ -77,6 +84,18 @@ export function runCli(
     );
   }
 
+  if (parsed.command === "start" && parsed.facadeOnly) {
+    return {
+      exitCode: 0,
+      stdout: `Starting Athena facade on port ${parsed.port ?? resolved.config.ports.athena}.\n`,
+      stderr: "",
+      action: {
+        type: "serve-facade",
+        port: parsed.port ?? resolved.config.ports.athena,
+      },
+    };
+  }
+
   return ok(renderTextCommand(parsed.command, resolved.config.containerRuntime));
 }
 
@@ -108,6 +127,8 @@ Commands:
 
 Options:
   --json
+  --facade-only
+  --port <port>
   --runtime apple-container|docker
   --storage-backend minio|s3
   --mode test|persistent

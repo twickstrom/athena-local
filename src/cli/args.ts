@@ -18,6 +18,8 @@ export interface ParsedArgs {
   readonly help: boolean;
   readonly version: boolean;
   readonly json: boolean;
+  readonly facadeOnly: boolean;
+  readonly port?: number;
   readonly config: PartialAthenaLocalConfig;
   readonly errors: readonly string[];
 }
@@ -29,6 +31,8 @@ export function parseArgs(args: readonly string[]): ParsedArgs {
   let help = false;
   let version = false;
   let json = false;
+  let facadeOnly = false;
+  let port: number | undefined;
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -58,6 +62,25 @@ export function parseArgs(args: readonly string[]): ParsedArgs {
         json = true;
         config.outputMode = "json";
         break;
+      case "--facade-only":
+        facadeOnly = true;
+        break;
+      case "--port": {
+        const raw = readOptionValue(args, index, arg, errors);
+        const parsedPort = raw === undefined ? undefined : Number(raw);
+        if (
+          raw !== undefined &&
+          (!Number.isInteger(parsedPort) ||
+            parsedPort === undefined ||
+            parsedPort < 1 ||
+            parsedPort > 65535)
+        ) {
+          errors.push("--port must be an integer between 1 and 65535");
+        }
+        port = parsedPort;
+        index += 1;
+        break;
+      }
       case "--runtime":
         config.containerRuntime = readOptionValue(args, index, arg, errors);
         index += 1;
@@ -97,6 +120,8 @@ export function parseArgs(args: readonly string[]): ParsedArgs {
     help,
     version,
     json,
+    facadeOnly,
+    ...(port === undefined ? {} : { port }),
     config,
     errors,
   };

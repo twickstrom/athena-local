@@ -516,6 +516,7 @@ function fakeRuntime(status: RuntimeStatus): RuntimeAdapter {
   return {
     kind: status.runtime,
     detect: async () => status,
+    resolveHostGateway: async () => "host.docker.internal",
     status: async () => status,
     planStart: () => [],
     planStop: () => [],

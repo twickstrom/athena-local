@@ -5,6 +5,7 @@ import { describe, expect, test } from "bun:test";
 import {
   AppleContainerRuntimeAdapter,
   parseAppleContainerVersion,
+  parseNetworkGateway,
 } from "../../src/runtime/apple-container.ts";
 import type { CommandSpec, ProcessExecutor } from "../../src/process/command.ts";
 import type { RuntimeServiceDefinition } from "../../src/runtime/types.ts";
@@ -50,6 +51,7 @@ describe("Apple container runtime adapter command generation", () => {
       {
         executable: "container",
         args: ["network", "create", "athena-local"],
+        allowFailure: true,
       },
       {
         executable: "container",
@@ -235,6 +237,58 @@ describe("Apple container runtime adapter command generation", () => {
     expect(parseAppleContainerVersion("0.2.1\n")).toBe("0.2.1");
     expect(parseAppleContainerVersion("container version 0.2.1")).toBe("0.2.1");
     expect(parseAppleContainerVersion("")).toBeUndefined();
+  });
+
+  test("resolveHostGateway creates the network and returns its gateway", async () => {
+    const commands: CommandSpec[] = [];
+    const adapter = new AppleContainerRuntimeAdapter({
+      projectName: "athena-local",
+      networkName: "athena-local",
+      executor: sequenceExecutor(commands, [
+        { exitCode: 0, stdout: "", stderr: "" },
+        {
+          exitCode: 0,
+          stdout:
+            '[{"status":{"ipv4Subnet":"10.88.0.0/24","ipv4Gateway":"10.88.0.1"},"id":"athena-local"}]',
+          stderr: "",
+        },
+      ]),
+    });
+
+    await expect(adapter.resolveHostGateway()).resolves.toBe("10.88.0.1");
+    expect(commands).toEqual([
+      {
+        executable: "container",
+        args: ["network", "create", "athena-local"],
+        allowFailure: true,
+      },
+      { executable: "container", args: ["network", "inspect", "athena-local"] },
+    ]);
+  });
+
+  test("resolveHostGateway throws when the gateway cannot be determined", async () => {
+    const adapter = new AppleContainerRuntimeAdapter({
+      projectName: "athena-local",
+      networkName: "athena-local",
+      executor: sequenceExecutor([], [
+        { exitCode: 0, stdout: "", stderr: "" },
+        { exitCode: 0, stdout: "[{}]", stderr: "" },
+      ]),
+    });
+
+    await expect(adapter.resolveHostGateway()).rejects.toThrow(
+      "Could not determine the gateway",
+    );
+  });
+
+  test("parseNetworkGateway reads ipv4Gateway from array and object shapes", () => {
+    expect(
+      parseNetworkGateway('[{"status":{"ipv4Gateway":"10.88.0.1"}}]'),
+    ).toBe("10.88.0.1");
+    expect(
+      parseNetworkGateway('{"status":{"ipv4Gateway":"192.168.65.1"}}'),
+    ).toBe("192.168.65.1");
+    expect(parseNetworkGateway("not json")).toBeUndefined();
   });
 });
 

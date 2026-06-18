@@ -39,6 +39,16 @@ const service: RuntimeServiceDefinition = {
 };
 
 describe("Docker runtime adapter command generation", () => {
+  test("resolveHostGateway uses the built-in host alias", async () => {
+    const adapter = new DockerRuntimeAdapter({
+      projectName: "athena-local",
+      networkName: "athena-local",
+    });
+    await expect(adapter.resolveHostGateway()).resolves.toBe(
+      "host.docker.internal",
+    );
+  });
+
   test("plans start commands from typed service definitions", () => {
     const adapter = new DockerRuntimeAdapter({
       projectName: "athena-local",

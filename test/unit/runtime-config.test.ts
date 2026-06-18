@@ -27,4 +27,24 @@ describe("runtime config generation", () => {
       "jdbc:postgresql://postgres:5432/metastore",
     );
   });
+
+  test("routes inter-service addresses through a gateway when supplied", async () => {
+    const root = mkdtempSync(join(tmpdir(), "athena-local-runtime-"));
+    const paths = await prepareLocalRuntimeConfig({
+      root,
+      postgresHost: "10.88.0.1",
+      postgresPort: 15432,
+      minioEndpoint: "http://10.88.0.1:19000",
+      hiveMetastoreUri: "thrift://10.88.0.1:19083",
+    });
+
+    await expect(
+      Bun.file(join(paths.trinoConfigDir, "catalog", "hive.properties")).text(),
+    ).resolves.toContain("hive.metastore.uri=thrift://10.88.0.1:19083");
+    const hiveSite = await Bun.file(
+      join(paths.hiveConfigDir, "hive-site.xml"),
+    ).text();
+    expect(hiveSite).toContain("jdbc:postgresql://10.88.0.1:15432/metastore");
+    expect(hiveSite).toContain("http://10.88.0.1:19000");
+  });
 });

@@ -80,6 +80,11 @@ export interface ServiceStatus {
 export interface RuntimeAdapter {
   readonly kind: RuntimeKind;
   readonly detect: () => Promise<RuntimeStatus>;
+  // The address a container uses to reach host-published ports. Docker resolves
+  // a built-in alias; Apple container has no such alias, so it creates the
+  // network and reads the discovered gateway IP. Used to route inter-service
+  // traffic and to reach an external (host) object store.
+  readonly resolveHostGateway: () => Promise<string>;
   readonly status: (
     services: readonly RuntimeServiceDefinition[],
   ) => Promise<RuntimeStatus>;

@@ -17,9 +17,14 @@ export interface RuntimeConfigOptions {
   readonly minioSecretKey?: string;
   readonly warehouseLocation?: string;
   readonly postgresHost?: string;
+  readonly postgresPort?: number;
   readonly postgresDatabase?: string;
   readonly postgresUser?: string;
   readonly postgresPassword?: string;
+  // Inter-service addresses as Trino sees them. Defaults use Docker-style
+  // service-name DNS (resolved via --network-alias). Apple container has no
+  // such DNS, so the caller passes host-gateway addresses instead.
+  readonly hiveMetastoreUri?: string;
 }
 
 export async function prepareLocalRuntimeConfig(
@@ -78,7 +83,7 @@ function trinoHiveCatalog(options: RuntimeConfigOptions): string {
   const secretKey = options.minioSecretKey ?? "local-secret";
   return [
     "connector.name=hive",
-    "hive.metastore.uri=thrift://hive-metastore:9083",
+    `hive.metastore.uri=${options.hiveMetastoreUri ?? "thrift://hive-metastore:9083"}`,
     "fs.native-s3.enabled=true",
     `s3.endpoint=${endpoint}`,
     "s3.path-style-access=true",
@@ -91,6 +96,7 @@ function trinoHiveCatalog(options: RuntimeConfigOptions): string {
 
 function hiveSiteXml(options: RuntimeConfigOptions): string {
   const postgresHost = options.postgresHost ?? "postgres";
+  const postgresPort = options.postgresPort ?? 5432;
   const database = options.postgresDatabase ?? "metastore";
   const user = options.postgresUser ?? "metastore";
   const password = options.postgresPassword ?? "metastore-local";
@@ -101,7 +107,7 @@ function hiveSiteXml(options: RuntimeConfigOptions): string {
 
   return `<?xml version="1.0"?>
 <configuration>
-  ${property("javax.jdo.option.ConnectionURL", `jdbc:postgresql://${postgresHost}:5432/${database}`)}
+  ${property("javax.jdo.option.ConnectionURL", `jdbc:postgresql://${postgresHost}:${postgresPort}/${database}`)}
   ${property("javax.jdo.option.ConnectionDriverName", "org.postgresql.Driver")}
   ${property("javax.jdo.option.ConnectionUserName", user)}
   ${property("javax.jdo.option.ConnectionPassword", password)}

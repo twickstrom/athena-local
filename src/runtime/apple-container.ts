@@ -59,10 +59,35 @@ export class AppleContainerRuntimeAdapter implements RuntimeAdapter {
     };
   }
 
+  async resolveHostGateway(): Promise<string> {
+    // Apple container has no inter-container name DNS, so services reach each
+    // other (and an external host object store) through the network gateway plus
+    // host-published ports. Create the network if needed, then read its gateway.
+    await this.#executor.run(
+      containerAllowFailure("network", "create", this.#networkName),
+    );
+    const result = await this.#executor.run(
+      container("network", "inspect", this.#networkName),
+    );
+    if (result.exitCode !== 0) {
+      throw new Error(
+        compactMessage(result.stderr, result.stdout, "Could not inspect network."),
+      );
+    }
+    const gateway = parseNetworkGateway(result.stdout);
+    if (gateway === undefined) {
+      throw new Error(
+        `Could not determine the gateway for network ${this.#networkName}.`,
+      );
+    }
+    return gateway;
+  }
+
   planStart(services: readonly RuntimeServiceDefinition[]): readonly CommandSpec[] {
     this.#validateServices(services);
     return [
-      container("network", "create", this.#networkName),
+      // resolveHostGateway already creates the network; tolerate it existing.
+      containerAllowFailure("network", "create", this.#networkName),
       ...services.flatMap((service) => [
         container("image", "pull", service.image),
         ...(service.initTasks ?? []).map((task) =>
@@ -202,6 +227,24 @@ function containerAllowFailure(...args: readonly string[]): CommandSpec {
 
 export function parseAppleContainerVersion(output: string): string | undefined {
   return output.match(/\d+(?:\.\d+){1,3}/)?.[0];
+}
+
+// Reads ipv4Gateway from `container network inspect` JSON, tolerating both the
+// documented array shape and a bare object.
+export function parseNetworkGateway(output: string): string | undefined {
+  try {
+    const parsed = JSON.parse(output) as unknown;
+    const entry = Array.isArray(parsed) ? parsed[0] : parsed;
+    const status = (entry as { status?: { ipv4Gateway?: unknown } } | undefined)
+      ?.status;
+    if (typeof status?.ipv4Gateway === "string" && status.ipv4Gateway.length > 0) {
+      return status.ipv4Gateway;
+    }
+  } catch {
+    // Fall through to the regex below.
+  }
+  const match = output.match(/"ipv4Gateway"\s*:\s*"([^"]+)"/);
+  return match?.[1];
 }
 
 function compactMessage(...values: readonly string[]): string {

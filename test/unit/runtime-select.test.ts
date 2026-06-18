@@ -75,6 +75,7 @@ describe("runtime plan summaries", () => {
     expect(reset.commands[8]).toEqual({
       executable: "container",
       args: ["network", "create", "athena-local"],
+      allowFailure: true,
     });
   });
 });

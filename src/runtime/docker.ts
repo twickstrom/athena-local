@@ -57,6 +57,13 @@ export class DockerRuntimeAdapter implements RuntimeAdapter {
     };
   }
 
+  async resolveHostGateway(): Promise<string> {
+    // Docker exposes the host through a built-in DNS alias on every platform's
+    // Desktop/Engine, so no discovery is needed. Inter-service traffic uses
+    // --network-alias service names; only an external host store needs this.
+    return "host.docker.internal";
+  }
+
   planStart(services: readonly RuntimeServiceDefinition[]): readonly CommandSpec[] {
     this.#validateServices(services);
     return [

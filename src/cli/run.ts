@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Tim Wickstrom
 
 import { redactConfig, resolveConfig } from "../config/resolve.ts";
-import type { AthenaLocalConfig } from "../config/types.ts";
+import type { AthenaLocalConfig, ContainerRuntime } from "../config/types.ts";
 import type { ConfigSources } from "../config/types.ts";
 import {
   collectHostDiagnostics,
@@ -12,6 +12,7 @@ import {
 import { createLocalStackServices } from "../infra/services.ts";
 import {
   prepareLocalRuntimeConfig,
+  type RuntimeConfigOptions,
   type RuntimeConfigPaths,
 } from "../infra/runtime-config.ts";
 import { packageName, projectVersion } from "../index.ts";
@@ -71,7 +72,9 @@ export interface CliEnvironment {
   readonly processExecutor?: ProcessExecutor;
   readonly readinessProbes?: ReadinessProbes;
   readonly readinessOptions?: ReadinessWaitOptions;
-  readonly runtimeConfigWriter?: () => Promise<RuntimeConfigPaths>;
+  readonly runtimeConfigWriter?: (
+    options: RuntimeConfigOptions,
+  ) => Promise<RuntimeConfigPaths>;
   readonly seedExecutor?: SeedExecutor;
   readonly bucketManager?: BucketManager;
 }
@@ -393,10 +396,17 @@ async function executeRuntimeCommand(
     }
   }
 
-  const configPaths =
-    command === "start" || command === "reset"
-      ? await (environment.runtimeConfigWriter ?? prepareLocalRuntimeConfig)()
-      : undefined;
+  const configWriter =
+    environment.runtimeConfigWriter ?? prepareLocalRuntimeConfig;
+  let configPaths: RuntimeConfigPaths | undefined;
+  if (command === "start" || command === "reset") {
+    const adapter =
+      createRuntimeAdapters(config, environment)[config.containerRuntime];
+    const hostGateway = await adapter.resolveHostGateway();
+    configPaths = await configWriter(
+      interServiceConfigOptions(config.containerRuntime, config.ports, hostGateway),
+    );
+  }
 
   const plan = createRuntimeCommandPlan({
     runtime: config.containerRuntime,
@@ -562,6 +572,26 @@ async function detectRuntimes(
     host,
     ...(selectedRuntime === undefined ? {} : { selectedRuntime }),
   };
+}
+
+// Inter-service addresses as the containers see them. Docker resolves sibling
+// services by their --network-alias names (the runtime-config defaults), so it
+// needs no overrides. Apple container has no such DNS, so every reference goes
+// through the discovered host gateway plus the host-published port.
+function interServiceConfigOptions(
+  runtime: ContainerRuntime,
+  ports: AthenaLocalConfig["ports"],
+  hostGateway: string,
+): RuntimeConfigOptions {
+  if (runtime === "apple-container") {
+    return {
+      postgresHost: hostGateway,
+      postgresPort: ports.postgres,
+      minioEndpoint: `http://${hostGateway}:${ports.minio}`,
+      hiveMetastoreUri: `thrift://${hostGateway}:${ports.hiveMetastore}`,
+    };
+  }
+  return {};
 }
 
 function createRuntimeAdapters(

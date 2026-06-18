@@ -213,6 +213,38 @@ describe("CLI runner", () => {
     expect(result.stdout).toBe("");
   });
 
+  test("executes seed statements through async CLI", async () => {
+    const executed: string[] = [];
+    const result = await runCliAsync(["seed"], {
+      seedExecutor: {
+        execute: async (sql) => {
+          executed.push(sql);
+        },
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("seed: executed 2 statement(s).\n");
+    expect(executed).toHaveLength(2);
+    expect(executed[0]).toContain("CREATE SCHEMA IF NOT EXISTS");
+  });
+
+  test("renders seed JSON output", async () => {
+    const result = await runCliAsync(["seed", "--json"], {
+      seedExecutor: {
+        execute: async () => {},
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+    const output = JSON.parse(result.stdout) as {
+      ok: boolean;
+      seeded: string[];
+    };
+    expect(output.ok).toBe(true);
+    expect(output.seeded).toHaveLength(2);
+  });
+
   test("shows help without requiring a command", () => {
     const result = runCli(["--help"]);
 

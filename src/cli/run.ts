@@ -25,6 +25,13 @@ import {
   type ReadinessWaitOptions,
 } from "../runtime/readiness.ts";
 import {
+  createDefaultSeedStatements,
+  createTrinoSeedExecutor,
+  seedLocalCatalog,
+  type SeedExecutor,
+} from "../seed/seed.ts";
+import { TrinoClient } from "../trino/client.ts";
+import {
   createRuntimeCommandPlan,
   createRuntimePlanSummary,
   type RuntimePlanCommand,
@@ -61,6 +68,7 @@ export interface CliEnvironment {
   readonly readinessProbes?: ReadinessProbes;
   readonly readinessOptions?: ReadinessWaitOptions;
   readonly runtimeConfigWriter?: () => Promise<RuntimeConfigPaths>;
+  readonly seedExecutor?: SeedExecutor;
 }
 
 export interface DoctorDiagnostics {
@@ -207,6 +215,10 @@ export async function runCliAsync(
     return inspectRuntimeStatus(result, parsed.json, resolved.config, environment);
   }
 
+  if (parsed.command === "seed") {
+    return runSeed(resolved.config, environment, parsed.json);
+  }
+
   if (
     parsed.command !== undefined &&
     isRuntimePlanCommand(parsed.command) &&
@@ -232,6 +244,38 @@ export async function runCliAsync(
       renderDoctorDiagnostics(diagnostics),
     ].join("\n"),
   );
+}
+
+async function runSeed(
+  config: AthenaLocalConfig,
+  environment: CliEnvironment,
+  json: boolean,
+): Promise<CliResult> {
+  const executor =
+    environment.seedExecutor ??
+    createTrinoSeedExecutor(
+      new TrinoClient({
+        endpoint: environment.env?.TRINO_ENDPOINT ?? "http://127.0.0.1:8080",
+        user: environment.env?.ATHENA_LOCAL_TRINO_USER ?? "athena-local",
+        catalog: "hive",
+        schema: "default",
+      }),
+    );
+  const result = await seedLocalCatalog(
+    executor,
+    createDefaultSeedStatements({
+      warehouseLocation:
+        config.storageBackend === "minio"
+          ? "s3a://athena-local/warehouse/default"
+          : `s3a://${config.s3Bucket}/${config.s3Prefix ?? "athena-local"}/warehouse/default`,
+    }),
+  );
+
+  if (json) {
+    return ok(`${JSON.stringify({ ok: true, seeded: result.statements }, null, 2)}\n`);
+  }
+
+  return ok(`seed: executed ${result.statements.length} statement(s).\n`);
 }
 
 async function inspectRuntimeStatus(

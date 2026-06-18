@@ -105,7 +105,7 @@ export class AppleContainerRuntimeAdapter implements RuntimeAdapter {
   planDestroy(services: readonly RuntimeServiceDefinition[]): readonly CommandSpec[] {
     return [
       ...services.flatMap((service) => [
-        containerAllowFailure("rm", this.#containerName(service.name)),
+        containerAllowFailure("rm", "--force", this.#containerName(service.name)),
         ...service.volumes
           .filter((volume) => volume.source?.type !== "bind")
           .map((volume) =>

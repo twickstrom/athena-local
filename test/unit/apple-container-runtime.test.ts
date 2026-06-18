@@ -107,7 +107,7 @@ describe("Apple container runtime adapter command generation", () => {
     expect(adapter.planDestroy([service])).toEqual([
       {
         executable: "container",
-        args: ["rm", "athena-local-minio"],
+        args: ["rm", "--force", "athena-local-minio"],
         allowFailure: true,
       },
       {

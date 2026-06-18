@@ -66,7 +66,7 @@ describe("runtime plan summaries", () => {
     expect(reset.commands).toHaveLength(26);
     expect(reset.commands[0]).toEqual({
       executable: "container",
-      args: ["rm", "athena-local-postgres"],
+      args: ["rm", "--force", "athena-local-postgres"],
       allowFailure: true,
     });
     expect(reset.commands[8]).toEqual({

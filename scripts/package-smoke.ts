@@ -1,3 +1,4 @@
+import { Glob } from "bun";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -57,25 +58,7 @@ for (const path of forbiddenSourceFiles) {
   }
 }
 
-for (const pattern of forbiddenSecretPatterns) {
-  const result = await runCommand([
-    "rg",
-    "-n",
-    pattern,
-    ".",
-    "--glob",
-    "!node_modules/**",
-    "--glob",
-    "!scripts/package-smoke.ts",
-    "--glob",
-    "!bun.lock",
-    "--glob",
-    "!.git/**",
-  ]);
-  if (result.exitCode === 0) {
-    fail(`Forbidden secret pattern found: ${pattern}\n${result.stdout}`);
-  }
-}
+await scanForSecrets(forbiddenSecretPatterns);
 
 const packageDir = mkdtempSync(join(tmpdir(), "athena-local-pack-"));
 const pack = await runCommand([
@@ -137,6 +120,34 @@ if (packageJson.engines?.bun !== ">=1.3.0") {
 }
 
 console.log("Package smoke checks passed.");
+
+// Scan the tracked source tree for forbidden secret patterns without depending
+// on an external tool (ripgrep/grep), so the smoke test is portable everywhere.
+async function scanForSecrets(patterns: readonly string[]): Promise<void> {
+  // Match case-sensitively: the patterns are lowercase (the ~/.aws/credentials
+  // key form and token prefixes), so uppercase env-var names like
+  // AWS_ACCESS_KEY_ID in source are not flagged as leaked secrets.
+  const glob = new Glob(
+    "{src,test,scripts,docs,.github}/**/*.{ts,tsx,js,json,md,yml,yaml,xml,properties}",
+  );
+  const rootGlob = new Glob("*.{ts,json,md,yml,yaml}");
+
+  const seen = new Set<string>();
+  for (const scanner of [glob.scan("."), rootGlob.scan(".")]) {
+    for await (const path of scanner) {
+      if (seen.has(path) || path === "scripts/package-smoke.ts") {
+        continue;
+      }
+      seen.add(path);
+      const text = await Bun.file(path).text().catch(() => "");
+      for (const pattern of patterns) {
+        if (text.includes(pattern)) {
+          fail(`Forbidden secret pattern found in ${path}: ${pattern}`);
+        }
+      }
+    }
+  }
+}
 
 interface CommandOutput {
   readonly exitCode: number;

@@ -26,12 +26,19 @@ export interface VolumeMount {
 export interface RuntimeServiceDefinition {
   readonly name: string;
   readonly image: string;
+  readonly initTasks?: readonly RuntimeInitTask[];
   readonly command?: readonly string[];
   readonly env?: Readonly<Record<string, string>>;
   readonly ports: readonly PortMapping[];
   readonly volumes: readonly VolumeMount[];
   readonly dependsOn: readonly string[];
   readonly readiness: RuntimeReadinessCheck;
+}
+
+export interface RuntimeInitTask {
+  readonly image: string;
+  readonly command: readonly string[];
+  readonly volumes: readonly VolumeMount[];
 }
 
 export type RuntimeReadinessCheck =
@@ -95,6 +102,15 @@ export function validateServiceDefinition(
 
   if (service.image.length === 0 || service.image.endsWith(":latest")) {
     issues.push("Service image must be pinned and must not use latest.");
+  }
+
+  for (const task of service.initTasks ?? []) {
+    if (task.image.length === 0 || task.image.endsWith(":latest")) {
+      issues.push("Init task image must be pinned and must not use latest.");
+    }
+    if (task.command.length === 0) {
+      issues.push("Init task command must not be empty.");
+    }
   }
 
   const portNames = new Set<string>();

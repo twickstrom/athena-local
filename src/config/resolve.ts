@@ -57,6 +57,14 @@ export function configFromEnv(
     awsRegion: env.AWS_REGION,
     s3Bucket: env.ATHENA_LOCAL_S3_BUCKET,
     s3Prefix: env.ATHENA_LOCAL_S3_PREFIX,
+    ports: removeUndefinedRecord({
+      athena: optionalNumberFromEnv(env.ATHENA_LOCAL_PORT_ATHENA),
+      minio: optionalNumberFromEnv(env.ATHENA_LOCAL_PORT_MINIO),
+      minioConsole: optionalNumberFromEnv(env.ATHENA_LOCAL_PORT_MINIO_CONSOLE),
+      trino: optionalNumberFromEnv(env.ATHENA_LOCAL_PORT_TRINO),
+      hiveMetastore: optionalNumberFromEnv(env.ATHENA_LOCAL_PORT_HIVE_METASTORE),
+      postgres: optionalNumberFromEnv(env.ATHENA_LOCAL_PORT_POSTGRES),
+    }),
     outputMode: env.ATHENA_LOCAL_OUTPUT_MODE,
   };
 }
@@ -235,12 +243,22 @@ function optionalEnum<const T extends readonly string[]>(
   return value;
 }
 
+function optionalNumberFromEnv(value: string | undefined): number | undefined {
+  return value === undefined ? undefined : Number(value);
+}
+
 function removeUndefined(
   value: PartialAthenaLocalConfig,
 ): PartialAthenaLocalConfig {
+  return removeUndefinedRecord(value) as PartialAthenaLocalConfig;
+}
+
+function removeUndefinedRecord<T extends object>(
+  value: T,
+): Partial<T> {
   return Object.fromEntries(
     Object.entries(value).filter((entry) => entry[1] !== undefined),
-  ) as PartialAthenaLocalConfig;
+  ) as Partial<T>;
 }
 
 function asPortRecord(value: unknown): Partial<AthenaLocalConfig["ports"]> {

@@ -92,4 +92,27 @@ describe("configuration resolution", () => {
       message: "Port must be an integer between 1 and 65535.",
     });
   });
+
+  test("applies environment port overrides", () => {
+    const resolved = resolveConfig({
+      env: {
+        ATHENA_LOCAL_PORT_ATHENA: "14567",
+        ATHENA_LOCAL_PORT_MINIO: "19000",
+        ATHENA_LOCAL_PORT_MINIO_CONSOLE: "19001",
+        ATHENA_LOCAL_PORT_TRINO: "18080",
+        ATHENA_LOCAL_PORT_HIVE_METASTORE: "19083",
+        ATHENA_LOCAL_PORT_POSTGRES: "15432",
+      },
+    });
+
+    expect(resolved.issues).toEqual([]);
+    expect(resolved.config.ports).toEqual({
+      athena: 14567,
+      minio: 19000,
+      minioConsole: 19001,
+      trino: 18080,
+      hiveMetastore: 19083,
+      postgres: 15432,
+    });
+  });
 });

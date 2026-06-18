@@ -134,6 +134,7 @@ export function runCli(
             runtime: resolved.config.containerRuntime,
             projectName: resolved.config.projectId,
             networkName: resolved.config.projectId,
+            ports: resolved.config.ports,
           });
     const runtimeCommands =
       resolved.config.containerRuntime === undefined ||
@@ -145,6 +146,7 @@ export function runCli(
             projectName: resolved.config.projectId,
             networkName: resolved.config.projectId,
             redact: true,
+            ports: resolved.config.ports,
           });
     const serviceStatus =
       parsed.command !== "status" || runtimePlan === undefined
@@ -337,7 +339,7 @@ async function inspectRuntimeStatus(
   environment: CliEnvironment,
 ): Promise<CliResult> {
   const adapter = createRuntimeAdapters(config, environment)[config.containerRuntime!];
-  const status = await adapter.status(createLocalStackServices());
+  const status = await adapter.status(createLocalStackServices({ ports: config.ports }));
 
   if (json) {
     const output = JSON.parse(result.stdout) as Record<string, unknown>;
@@ -398,6 +400,7 @@ async function executeRuntimeCommand(
     command,
     projectName: config.projectId,
     networkName: config.projectId,
+    ports: config.ports,
     ...(configPaths === undefined ? {} : { configPaths }),
   });
   const rollback =
@@ -407,6 +410,7 @@ async function executeRuntimeCommand(
           command: "destroy",
           projectName: config.projectId,
           networkName: config.projectId,
+          ports: config.ports,
           ...(configPaths === undefined ? {} : { configPaths }),
         }).commands
       : [];
@@ -422,7 +426,10 @@ async function executeRuntimeCommand(
   if (lifecycle.ok) {
     if (command === "start" || command === "reset") {
       const readiness = await waitForServicesReady(
-        createLocalStackServices(configPaths),
+        createLocalStackServices({
+          ...(configPaths === undefined ? {} : { configPaths }),
+          ports: config.ports,
+        }),
         environment.readinessProbes ?? createDefaultReadinessProbes(executor),
         environment.readinessOptions,
       );

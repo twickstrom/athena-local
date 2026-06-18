@@ -1,4 +1,5 @@
 import { createCommandSpec } from "../process/command.ts";
+import type { AthenaLocalConfig } from "../config/types.ts";
 import type { RuntimeServiceDefinition } from "../runtime/types.ts";
 import type { RuntimeConfigPaths } from "./runtime-config.ts";
 
@@ -9,13 +10,29 @@ export const localServiceImages = {
   trino: "trinodb/trino:477",
 } as const;
 
+export interface LocalStackServiceOptions {
+  readonly configPaths?: RuntimeConfigPaths;
+  readonly ports?: AthenaLocalConfig["ports"];
+}
+
+const defaultPorts: AthenaLocalConfig["ports"] = {
+  athena: 4567,
+  minio: 9000,
+  minioConsole: 9001,
+  trino: 8080,
+  hiveMetastore: 9083,
+  postgres: 5432,
+};
+
 export function createLocalStackServices(
-  configPaths: RuntimeConfigPaths = {
+  options: LocalStackServiceOptions = {},
+): readonly RuntimeServiceDefinition[] {
+  const configPaths = options.configPaths ?? {
     root: ".athena-local/runtime",
     trinoConfigDir: ".athena-local/runtime/trino",
     hiveConfigDir: ".athena-local/runtime/hive",
-  },
-): readonly RuntimeServiceDefinition[] {
+  };
+  const ports = options.ports ?? defaultPorts;
   return [
     {
       name: "postgres",
@@ -24,11 +41,12 @@ export function createLocalStackServices(
         POSTGRES_DB: "metastore",
         POSTGRES_USER: "metastore",
         POSTGRES_PASSWORD: "metastore-local",
+        PGDATA: "/var/lib/postgresql/data/pgdata",
       },
       ports: [
         {
           name: "postgres",
-          hostPort: 5432,
+          hostPort: ports.postgres,
           containerPort: 5432,
           protocol: "tcp",
         },
@@ -43,7 +61,7 @@ export function createLocalStackServices(
       readiness: {
         type: "tcp",
         host: "127.0.0.1",
-        port: 5432,
+        port: ports.postgres,
         timeoutMs: 30_000,
       },
     },
@@ -58,13 +76,13 @@ export function createLocalStackServices(
       ports: [
         {
           name: "api",
-          hostPort: 9000,
+          hostPort: ports.minio,
           containerPort: 9000,
           protocol: "tcp",
         },
         {
           name: "console",
-          hostPort: 9001,
+          hostPort: ports.minioConsole,
           containerPort: 9001,
           protocol: "tcp",
         },
@@ -78,26 +96,48 @@ export function createLocalStackServices(
       dependsOn: [],
       readiness: {
         type: "http",
-        url: "http://127.0.0.1:9000/minio/health/ready",
+        url: `http://127.0.0.1:${ports.minio}/minio/health/ready`,
         timeoutMs: 30_000,
       },
     },
     {
       name: "hive-metastore",
       image: localServiceImages.hiveMetastore,
+      initTasks: [
+        {
+          image: localServiceImages.trino,
+          command: [
+            "cp",
+            "/usr/lib/trino/plugin/postgresql/org.postgresql_postgresql-42.7.8.jar",
+            "/hive-auxlib/postgresql.jar",
+          ],
+          volumes: [
+            {
+              name: "hive-auxlib",
+              target: "/hive-auxlib",
+            },
+          ],
+        },
+      ],
       env: {
         SERVICE_NAME: "metastore",
         DB_DRIVER: "postgres",
+        HIVE_AUX_JARS_PATH: "/opt/hive/auxlib/postgresql.jar",
       },
       ports: [
         {
           name: "thrift",
-          hostPort: 9083,
+          hostPort: ports.hiveMetastore,
           containerPort: 9083,
           protocol: "tcp",
         },
       ],
       volumes: [
+        {
+          name: "hive-auxlib",
+          target: "/opt/hive/auxlib",
+          readonly: true,
+        },
         {
           name: "hive-config",
           source: {
@@ -112,7 +152,7 @@ export function createLocalStackServices(
       readiness: {
         type: "tcp",
         host: "127.0.0.1",
-        port: 9083,
+        port: ports.hiveMetastore,
         timeoutMs: 60_000,
       },
     },
@@ -122,7 +162,7 @@ export function createLocalStackServices(
       ports: [
         {
           name: "http",
-          hostPort: 8080,
+          hostPort: ports.trino,
           containerPort: 8080,
           protocol: "tcp",
         },
@@ -141,7 +181,7 @@ export function createLocalStackServices(
       dependsOn: ["hive-metastore", "minio"],
       readiness: {
         type: "http",
-        url: "http://127.0.0.1:8080/v1/info",
+        url: `http://127.0.0.1:${ports.trino}/v1/info`,
         timeoutMs: 60_000,
       },
     },

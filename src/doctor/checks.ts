@@ -51,7 +51,7 @@ export function createDefaultHostDoctorChecks(): HostDoctorChecks {
       let listener: { stop: () => void } | undefined;
       try {
         listener = Bun.listen({
-          hostname: "127.0.0.1",
+          hostname: "0.0.0.0",
           port,
           socket: {
             data() {},

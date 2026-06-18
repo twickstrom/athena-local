@@ -95,7 +95,7 @@ describe("CLI runner", () => {
     };
 
     expect(output.runtimeCommands.command).toBe("start");
-    expect(output.runtimeCommands.commands).toHaveLength(15);
+    expect(output.runtimeCommands.commands).toHaveLength(18);
     expect(JSON.stringify(output.runtimeCommands.commands)).toContain(
       "MINIO_ROOT_PASSWORD=[redacted]",
     );
@@ -283,7 +283,7 @@ describe("CLI runner", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe(
-      "start: executed 15 docker command(s).\nStarting Athena facade on port 4567.\n",
+      "start: executed 18 docker command(s).\nStarting Athena facade on port 4567.\n",
     );
     expect(result.action).toEqual({
       type: "serve-facade",
@@ -293,7 +293,7 @@ describe("CLI runner", () => {
       executable: "docker",
       args: ["network", "create", "athena-local"],
     });
-    expect(executed).toHaveLength(15);
+    expect(executed).toHaveLength(18);
   });
 
   test("requires explicit runtime before executing runtime commands", async () => {
@@ -316,8 +316,8 @@ describe("CLI runner", () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("port is already allocated");
-    expect(result.stderr).toContain("rollback commands executed: 7");
-    expect(executed).toHaveLength(9);
+    expect(result.stderr).toContain("rollback commands executed: 8");
+    expect(executed).toHaveLength(10);
   });
 
   test("rolls back when runtime readiness fails after start", async () => {
@@ -338,8 +338,8 @@ describe("CLI runner", () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("runtime started but readiness failed");
-    expect(result.stderr).toContain("rollback commands executed: 7");
-    expect(executed).toHaveLength(22);
+    expect(result.stderr).toContain("rollback commands executed: 8");
+    expect(executed).toHaveLength(26);
   });
 
   test("rejects start before mutation when required ports conflict", async () => {

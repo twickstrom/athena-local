@@ -60,9 +60,11 @@ export class DockerRuntimeAdapter implements RuntimeAdapter {
       docker("network", "create", this.#networkName),
       ...services.flatMap((service) => [
         docker("pull", service.image),
+        ...(service.initTasks ?? []).map((task) => docker("pull", task.image)),
         ...service.volumes
           .filter((volume) => volume.source?.type !== "bind")
           .map((volume) => docker("volume", "create", this.#volumePrefix(volume.name))),
+        ...(service.initTasks ?? []).map((task) => this.#runInitTask(task)),
         this.#createContainer(service),
         docker("start", this.#containerName(service.name)),
       ]),
@@ -141,6 +143,21 @@ export class DockerRuntimeAdapter implements RuntimeAdapter {
     ];
 
     return createCommandSpec("docker", args);
+  }
+
+  #runInitTask(
+    task: NonNullable<RuntimeServiceDefinition["initTasks"]>[number],
+  ): CommandSpec {
+    return docker(
+      "run",
+      "--rm",
+      ...task.volumes.flatMap((volume) => [
+        "--volume",
+        `${this.#volumeSource(volume)}:${volume.target}${volume.readonly === true ? ":ro" : ""}`,
+      ]),
+      task.image,
+      ...task.command,
+    );
   }
 
   #validateServices(services: readonly RuntimeServiceDefinition[]): void {

@@ -29,7 +29,7 @@ if (result.stderr.length > 0) {
 }
 
 if (result.action?.type === "serve-facade") {
-  const bootstrap = createAthenaLocalHandler();
+  const bootstrap = createAthenaLocalHandler({ sources: loadedConfig.sources });
   const server = Bun.serve({
     port: result.action.port,
     fetch: bootstrap.handler,

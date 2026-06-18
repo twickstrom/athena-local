@@ -1,5 +1,6 @@
 import type { AthenaFacadeConfig } from "../facade/service.ts";
 import { AthenaFacadeService } from "../facade/service.ts";
+import type { ConfigSources } from "../config/types.ts";
 import { resolveConfig } from "../config/resolve.ts";
 import { openStateDatabase } from "../state/database.ts";
 import { QueryExecutionRepository } from "../state/repository.ts";
@@ -9,6 +10,7 @@ import { createAthenaHttpHandler } from "./http.ts";
 
 export interface BootstrapOptions {
   readonly env?: Record<string, string | undefined>;
+  readonly sources?: Omit<ConfigSources, "cli" | "env">;
 }
 
 export interface BootstrapResult {
@@ -20,7 +22,7 @@ export function createAthenaLocalHandler(
   options: BootstrapOptions = {},
 ): BootstrapResult {
   const env = options.env ?? Bun.env;
-  const resolved = resolveConfig({ env });
+  const resolved = resolveConfig({ ...options.sources, env });
   if (resolved.issues.length > 0) {
     throw new Error(
       resolved.issues
@@ -40,7 +42,9 @@ export function createAthenaLocalHandler(
     ...optionalString(
       "endpoint",
       resolved.config.storageBackend === "minio"
-        ? env.ATHENA_LOCAL_MINIO_ENDPOINT ?? env.S3_ENDPOINT
+        ? env.ATHENA_LOCAL_MINIO_ENDPOINT ??
+            env.S3_ENDPOINT ??
+            `http://127.0.0.1:${resolved.config.ports.minio}`
         : env.AWS_ENDPOINT_URL_S3,
     ),
     ...optionalString("accessKeyId", env.AWS_ACCESS_KEY_ID),
@@ -50,7 +54,8 @@ export function createAthenaLocalHandler(
   const storage = new BunS3Storage(storageOptions);
 
   const trino = new TrinoClient({
-    endpoint: env.TRINO_ENDPOINT ?? "http://127.0.0.1:8080",
+    endpoint:
+      env.TRINO_ENDPOINT ?? `http://127.0.0.1:${resolved.config.ports.trino}`,
     user: env.ATHENA_LOCAL_TRINO_USER ?? "athena-local",
     catalog: facadeConfig.defaultCatalog === "AwsDataCatalog"
       ? "hive"

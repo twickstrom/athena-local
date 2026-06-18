@@ -2,7 +2,7 @@ import { createLocalStackServices } from "../infra/services.ts";
 import type { RuntimeConfigPaths } from "../infra/runtime-config.ts";
 import { AppleContainerRuntimeAdapter } from "./apple-container.ts";
 import { DockerRuntimeAdapter } from "./docker.ts";
-import type { ContainerRuntime } from "../config/types.ts";
+import type { AthenaLocalConfig, ContainerRuntime } from "../config/types.ts";
 import { redactCommand, type CommandSpec } from "../process/command.ts";
 
 export interface RuntimePlanSummary {
@@ -27,8 +27,12 @@ export function createRuntimePlanSummary(input: {
   readonly projectName: string;
   readonly networkName: string;
   readonly configPaths?: RuntimeConfigPaths;
+  readonly ports?: AthenaLocalConfig["ports"];
 }): RuntimePlanSummary {
-  const services = createLocalStackServices(input.configPaths);
+  const services = createLocalStackServices({
+    ...(input.configPaths === undefined ? {} : { configPaths: input.configPaths }),
+    ...(input.ports === undefined ? {} : { ports: input.ports }),
+  });
   const adapter =
     input.runtime === "docker"
       ? new DockerRuntimeAdapter({
@@ -57,8 +61,12 @@ export function createRuntimeCommandPlan(input: {
   readonly networkName: string;
   readonly redact?: boolean;
   readonly configPaths?: RuntimeConfigPaths;
+  readonly ports?: AthenaLocalConfig["ports"];
 }): RuntimeCommandPlan {
-  const services = createLocalStackServices(input.configPaths);
+  const services = createLocalStackServices({
+    ...(input.configPaths === undefined ? {} : { configPaths: input.configPaths }),
+    ...(input.ports === undefined ? {} : { ports: input.ports }),
+  });
   const adapter = createAdapter(input);
   const commands = commandPlan(input.command, adapter, services);
 

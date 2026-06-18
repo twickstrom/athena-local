@@ -62,9 +62,13 @@ export class AppleContainerRuntimeAdapter implements RuntimeAdapter {
       container("network", "create", this.#networkName),
       ...services.flatMap((service) => [
         container("image", "pull", service.image),
+        ...(service.initTasks ?? []).map((task) =>
+          container("image", "pull", task.image),
+        ),
         ...service.volumes
           .filter((volume) => volume.source?.type !== "bind")
           .map((volume) => container("volume", "create", this.#volumeName(volume.name))),
+        ...(service.initTasks ?? []).map((task) => this.#runInitTask(task)),
         this.#createContainer(service),
         container("start", this.#containerName(service.name)),
       ]),
@@ -135,6 +139,21 @@ export class AppleContainerRuntimeAdapter implements RuntimeAdapter {
       ]),
       service.image,
       ...(service.command ?? []),
+    );
+  }
+
+  #runInitTask(
+    task: NonNullable<RuntimeServiceDefinition["initTasks"]>[number],
+  ): CommandSpec {
+    return container(
+      "run",
+      "--rm",
+      ...task.volumes.flatMap((volume) => [
+        "--volume",
+        `${this.#volumeSource(volume)}:${volume.target}${volume.readonly === true ? ":ro" : ""}`,
+      ]),
+      task.image,
+      ...task.command,
     );
   }
 

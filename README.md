@@ -637,7 +637,12 @@ bun run lint
 bun run format:check
 ```
 
-Pure unit tests do not require infrastructure. Integration and E2E tests use the selected runtime. Live AWS tests are opt-in and isolated to a configured prefix.
+Most suites run with no infrastructure: `test:unit`, `test:protocol`, `test:sqlite`, `test:integration`, and `test:e2e` use deterministic fakes (an in-memory storage backend, a scripted Trino, and a real AWS SDK client wired to the in-process facade), so they pass offline and in CI without containers or credentials.
+
+The runtime and AWS suites only do real work when their dependency is present, and otherwise skip:
+
+- `test:docker` and `test:apple-container` exercise live runtime detection when the Docker daemon or Apple `container` CLI is available.
+- `test:aws` is opt-in. It is skipped unless `ATHENA_LOCAL_AWS_TEST=1` is set together with `ATHENA_LOCAL_S3_BUCKET` and `ATHENA_LOCAL_S3_PREFIX`, and it operates only within that scoped development prefix.
 
 ## Development Setup
 

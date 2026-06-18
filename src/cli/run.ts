@@ -262,6 +262,23 @@ async function executeRuntimeCommand(
     };
   }
 
+  if (command === "start" || command === "reset") {
+    const diagnostics = await collectHostDiagnostics(config, environment.hostChecks);
+    const conflicts = diagnostics.ports.filter((port) => !port.available);
+    if (conflicts.length > 0) {
+      return {
+        exitCode: 1,
+        stdout: "",
+        stderr:
+          "Cannot start runtime because required host ports are unavailable:\n" +
+          conflicts
+            .map((port) => `- ${port.name} ${port.port}: ${port.message ?? "unavailable"}`)
+            .join("\n") +
+          "\n",
+      };
+    }
+  }
+
   const plan = createRuntimeCommandPlan({
     runtime: config.containerRuntime,
     command,

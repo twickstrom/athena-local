@@ -238,6 +238,7 @@ describe("CLI runner", () => {
     const executed: CommandSpec[] = [];
     const result = await runCliAsync(["start", "--runtime", "docker"], {
       processExecutor: recordingExecutor(executed),
+      hostChecks: fakeHostChecks(),
     });
 
     expect(result.exitCode).toBe(0);
@@ -259,6 +260,7 @@ describe("CLI runner", () => {
   test("rolls back failed start commands", async () => {
     const executed: CommandSpec[] = [];
     const result = await runCliAsync(["start", "--runtime", "docker"], {
+      hostChecks: fakeHostChecks(),
       processExecutor: recordingExecutor(executed, {
         failAt: 2,
         stderr: "port is already allocated",
@@ -269,6 +271,21 @@ describe("CLI runner", () => {
     expect(result.stderr).toContain("port is already allocated");
     expect(result.stderr).toContain("rollback commands executed: 8");
     expect(executed).toHaveLength(10);
+  });
+
+  test("rejects start before mutation when required ports conflict", async () => {
+    const executed: CommandSpec[] = [];
+    const result = await runCliAsync(["start", "--runtime", "docker"], {
+      processExecutor: recordingExecutor(executed),
+      hostChecks: fakeHostChecks({
+        unavailablePorts: new Set(["trino"]),
+      }),
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("required host ports are unavailable");
+    expect(result.stderr).toContain("- trino 8080: port in use");
+    expect(executed).toEqual([]);
   });
 
   test("renders async JSON doctor diagnostics with detected runtimes", async () => {

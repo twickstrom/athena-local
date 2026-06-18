@@ -265,6 +265,19 @@ Configuration precedence:
 | `AWS_REGION` | AWS region |
 | `AWS_ENDPOINT_URL_S3` | Custom S3 endpoint, only when explicitly configured |
 
+Host ports for each local service can be overridden when the defaults conflict with other processes:
+
+| Variable | Service | Default |
+| --- | --- | --- |
+| `ATHENA_LOCAL_PORT_ATHENA` | Athena facade | `4567` |
+| `ATHENA_LOCAL_PORT_MINIO` | MinIO S3 API | `9000` |
+| `ATHENA_LOCAL_PORT_MINIO_CONSOLE` | MinIO console | `9001` |
+| `ATHENA_LOCAL_PORT_TRINO` | Trino HTTP | `8080` |
+| `ATHENA_LOCAL_PORT_HIVE_METASTORE` | Hive Metastore thrift | `9083` |
+| `ATHENA_LOCAL_PORT_POSTGRES` | PostgreSQL | `5432` |
+
+The facade derives its Trino and MinIO endpoints from these ports. To point the facade at services that are already running elsewhere, set `TRINO_ENDPOINT`, `ATHENA_LOCAL_MINIO_ENDPOINT` (or `S3_ENDPOINT`), and `ATHENA_LOCAL_STATE_PATH` directly; these take precedence over the derived defaults.
+
 ## CLI Reference
 
 ```bash

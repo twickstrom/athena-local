@@ -15,6 +15,12 @@ import {
 } from "../process/command.ts";
 import { executeRuntimePlan } from "../runtime/lifecycle.ts";
 import {
+  createDefaultReadinessProbes,
+  waitForServicesReady,
+  type ReadinessProbes,
+  type ReadinessWaitOptions,
+} from "../runtime/readiness.ts";
+import {
   createRuntimeCommandPlan,
   createRuntimePlanSummary,
   type RuntimePlanCommand,
@@ -48,6 +54,8 @@ export interface CliEnvironment {
   readonly runtimeAdapters?: Partial<Record<RuntimeKind, RuntimeAdapter>>;
   readonly hostChecks?: HostDoctorChecks;
   readonly processExecutor?: ProcessExecutor;
+  readonly readinessProbes?: ReadinessProbes;
+  readonly readinessOptions?: ReadinessWaitOptions;
 }
 
 export interface DoctorDiagnostics {
@@ -294,15 +302,45 @@ async function executeRuntimeCommand(
           networkName: config.projectId,
         }).commands
       : [];
+  const executor = environment.processExecutor ?? createBunProcessExecutor();
   const lifecycle = await executeRuntimePlan(
     {
       commands: plan.commands,
       rollbackCommands: rollback,
     },
-    environment.processExecutor ?? createBunProcessExecutor(),
+    executor,
   );
 
   if (lifecycle.ok) {
+    if (command === "start" || command === "reset") {
+      const readiness = await waitForServicesReady(
+        createLocalStackServices(),
+        environment.readinessProbes ?? createDefaultReadinessProbes(executor),
+        environment.readinessOptions,
+      );
+      if (!readiness.ready) {
+        const rollbackLifecycle = await executeRuntimePlan(
+          {
+            commands: rollback,
+          },
+          executor,
+        );
+        return {
+          exitCode: 1,
+          stdout: "",
+          stderr:
+            `${command}: runtime started but readiness failed.\n` +
+            readiness.services
+              .filter((service) => !service.ready)
+              .map(
+                (service) =>
+                  `- ${service.service}: ${service.message ?? "not ready"}`,
+              )
+              .join("\n") +
+            `\nrollback commands executed: ${rollbackLifecycle.executed.length}\n`,
+        };
+      }
+    }
     return ok(
       `${command}: executed ${lifecycle.executed.length} ${config.containerRuntime} command(s).\n`,
     );

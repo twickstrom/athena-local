@@ -7,6 +7,7 @@ import type {
   CommandSpec,
   ProcessExecutor,
 } from "../../src/process/command.ts";
+import type { ReadinessProbes } from "../../src/runtime/readiness.ts";
 import type { RuntimeAdapter, RuntimeStatus } from "../../src/runtime/types.ts";
 
 describe("CLI arguments", () => {
@@ -239,6 +240,7 @@ describe("CLI runner", () => {
     const result = await runCliAsync(["start", "--runtime", "docker"], {
       processExecutor: recordingExecutor(executed),
       hostChecks: fakeHostChecks(),
+      readinessProbes: fakeReadinessProbes(true),
     });
 
     expect(result.exitCode).toBe(0);
@@ -271,6 +273,27 @@ describe("CLI runner", () => {
     expect(result.stderr).toContain("port is already allocated");
     expect(result.stderr).toContain("rollback commands executed: 8");
     expect(executed).toHaveLength(10);
+  });
+
+  test("rolls back when runtime readiness fails after start", async () => {
+    const executed: CommandSpec[] = [];
+    let now = 0;
+    const result = await runCliAsync(["start", "--runtime", "docker"], {
+      processExecutor: recordingExecutor(executed),
+      hostChecks: fakeHostChecks(),
+      readinessProbes: fakeReadinessProbes(false),
+      readinessOptions: {
+        now: () => now,
+        sleep: async () => {
+          now += 60_001;
+        },
+      },
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("runtime started but readiness failed");
+    expect(result.stderr).toContain("rollback commands executed: 8");
+    expect(executed).toHaveLength(24);
   });
 
   test("rejects start before mutation when required ports conflict", async () => {
@@ -401,6 +424,14 @@ function recordingExecutor(
       }
       return commandResult(0, "ok", "");
     },
+  };
+}
+
+function fakeReadinessProbes(ready: boolean): ReadinessProbes {
+  return {
+    http: async () => ready,
+    tcp: async () => ready,
+    command: async () => ready,
   };
 }
 

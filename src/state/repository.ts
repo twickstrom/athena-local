@@ -27,6 +27,7 @@ interface QueryExecutionRow {
   readonly scanned_bytes: number;
   readonly result_s3_uri: string | null;
   readonly result_metadata_json: string | null;
+  readonly result_rows_json: string | null;
   readonly result_row_count: number;
   readonly error_json: string | null;
 }
@@ -138,6 +139,7 @@ export class QueryExecutionRepository {
         scanned_bytes = ?,
         result_s3_uri = ?,
         result_metadata_json = ?,
+        result_rows_json = ?,
         result_row_count = ?,
         error_json = ?
       WHERE query_execution_id = ?
@@ -155,6 +157,7 @@ export class QueryExecutionRepository {
       update.scannedBytes ?? current.scannedBytes,
       update.resultS3Uri ?? current.resultS3Uri ?? null,
       update.resultMetadataJson ?? current.resultMetadataJson ?? null,
+      update.resultRowsJson ?? current.resultRowsJson ?? null,
       update.resultRowCount ?? current.resultRowCount,
       update.errorJson ?? current.errorJson ?? null,
       queryExecutionId,
@@ -199,6 +202,7 @@ function mapRow(row: QueryExecutionRow): QueryExecutionRecord {
     scannedBytes: row.scanned_bytes,
     resultS3Uri: row.result_s3_uri ?? undefined,
     resultMetadataJson: row.result_metadata_json ?? undefined,
+    resultRowsJson: row.result_rows_json ?? undefined,
     resultRowCount: row.result_row_count,
     errorJson: row.error_json ?? undefined,
   }) as QueryExecutionRecord;

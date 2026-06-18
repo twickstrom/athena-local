@@ -47,6 +47,7 @@ export function runMigrations(database: Database): void {
       scanned_bytes INTEGER NOT NULL DEFAULT 0,
       result_s3_uri TEXT,
       result_metadata_json TEXT,
+      result_rows_json TEXT,
       result_row_count INTEGER NOT NULL DEFAULT 0,
       error_json TEXT
     );

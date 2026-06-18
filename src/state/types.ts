@@ -28,6 +28,7 @@ export interface QueryExecutionRecord {
   readonly scannedBytes: number;
   readonly resultS3Uri?: string;
   readonly resultMetadataJson?: string;
+  readonly resultRowsJson?: string;
   readonly resultRowCount: number;
   readonly errorJson?: string;
 }
@@ -51,6 +52,7 @@ export interface QueryStateUpdate {
   readonly trinoNextUri?: string;
   readonly resultS3Uri?: string;
   readonly resultMetadataJson?: string;
+  readonly resultRowsJson?: string;
   readonly resultRowCount?: number;
   readonly engineExecutionMs?: number;
   readonly totalExecutionMs?: number;

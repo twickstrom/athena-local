@@ -49,6 +49,7 @@ export interface RuntimeStatus {
   readonly available: boolean;
   readonly version?: string;
   readonly services: readonly ServiceStatus[];
+  readonly message?: string;
 }
 
 export interface ServiceStatus {

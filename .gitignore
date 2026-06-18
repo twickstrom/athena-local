@@ -1,0 +1,35 @@
+.DS_Store
+
+# Dependencies
+node_modules/
+
+# Bun
+bun.lockb
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Local runtime state
+.athena-local/
+.local/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+*.log
+logs/
+
+# Build and coverage
+dist/
+coverage/
+*.tsbuildinfo
+
+# Package artifacts
+*.tgz
+
+# OS/editor
+.idea/
+.vscode/*
+!.vscode/extensions.json

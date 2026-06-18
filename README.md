@@ -673,6 +673,19 @@ The runtime and AWS suites only do real work when their dependency is present, a
 - `test:docker` and `test:apple-container` exercise live runtime detection when the Docker daemon or Apple `container` CLI is available.
 - `test:aws` is opt-in. It is skipped unless `ATHENA_LOCAL_AWS_TEST=1` is set together with `ATHENA_LOCAL_S3_BUCKET` and `ATHENA_LOCAL_S3_PREFIX`, and it operates only within that scoped development prefix.
 
+### Full-stack end-to-end
+
+`test/e2e/live-stack.test.ts` drives a real `AthenaClient` against a running stack (facade + Trino + Hive Metastore + MinIO) and asserts the seeded table is queryable with results written to object storage. It is skipped unless `ATHENA_LOCAL_LIVE=1`. To run it locally:
+
+```bash
+bun run src/cli.ts start --runtime docker &   # brings up the stack and serves the facade
+bun run src/cli.ts seed --runtime docker
+ATHENA_LOCAL_LIVE=1 bun test test/e2e/live-stack.test.ts
+bun run src/cli.ts destroy --runtime docker
+```
+
+The `Integration` GitHub Actions workflow runs exactly this on Docker for every push to `main` (and on PRs labeled `integration`). Docker is the primary full-stack runtime; the same stack on Apple `container` additionally requires a local DNS domain for inter-service name resolution (`sudo container system dns create …`).
+
 ## Development Setup
 
 ```bash

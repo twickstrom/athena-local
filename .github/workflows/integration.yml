@@ -1,0 +1,85 @@
+name: Integration
+
+# Boots the full Athena Local stack (PostgreSQL + MinIO + Hive Metastore +
+# Trino) on Docker and runs a real AWS SDK AthenaClient query end to end. This
+# is the primary full-stack suite; ubuntu-latest runners ship a working Docker
+# daemon. It is heavier than the unit/protocol checks in ci.yml, so it runs on
+# pushes to main and on PRs labeled "integration".
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [labeled, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  full-stack:
+    name: Docker full-stack end-to-end
+    # Only run on main, or on PRs that carry the "integration" label.
+    if: >
+      github.event_name == 'push' ||
+      contains(github.event.pull_request.labels.*.name, 'integration')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ATHENA_LOCAL_CONTAINER_RUNTIME: docker
+      AWS_ACCESS_KEY_ID: local
+      AWS_SECRET_ACCESS_KEY: local-secret
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Start the local stack
+        run: |
+          nohup bun run src/cli.ts start --runtime docker > /tmp/athena-start.log 2>&1 &
+          echo "Waiting for the Athena facade to come up..."
+          for i in $(seq 1 120); do
+            if curl -fsS -o /dev/null -X POST http://127.0.0.1:4567/ \
+                -H "X-Amz-Target: AmazonAthena.GetQueryExecution" \
+                -H "Content-Type: application/x-amz-json-1.1" \
+                -d '{"QueryExecutionId":"probe"}' 2>/dev/null; then
+              echo "facade responding"; break
+            fi
+            # A 400 from the facade also means it is up (bad request, but routed).
+            code=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://127.0.0.1:4567/ \
+                -H "X-Amz-Target: AmazonAthena.GetQueryExecution" \
+                -H "Content-Type: application/x-amz-json-1.1" -d '{}' || true)
+            if [ "$code" != "000" ] && [ -n "$code" ]; then echo "facade up (HTTP $code)"; break; fi
+            sleep 2
+          done
+
+      - name: Show stack status
+        run: |
+          docker ps --format '{{.Names}}\t{{.Status}}'
+          echo "--- start log ---"; cat /tmp/athena-start.log || true
+
+      - name: Seed the catalog
+        run: bun run src/cli.ts seed --runtime docker
+
+      - name: Run live end-to-end query
+        env:
+          ATHENA_LOCAL_LIVE: "1"
+        run: bun test test/e2e/live-stack.test.ts
+
+      - name: Tear down the stack
+        if: always()
+        run: bun run src/cli.ts destroy --runtime docker || true
+
+      - name: Upload stack logs on failure
+        if: failure()
+        run: |
+          mkdir -p /tmp/stack-logs
+          for c in athena-local-postgres athena-local-minio athena-local-hive-metastore athena-local-trino; do
+            docker logs "$c" > "/tmp/stack-logs/$c.log" 2>&1 || true
+          done
+          echo "Collected logs:"; ls -la /tmp/stack-logs

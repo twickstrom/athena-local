@@ -16,6 +16,14 @@ export function parseContainerState(
     };
   }
 
+  if (Array.isArray(parsed)) {
+    const first = parsed[0];
+    if (first === undefined) {
+      return missingServiceStatus(serviceName, "Container is missing.");
+    }
+    parsed = first;
+  }
+
   if (typeof parsed !== "object" || parsed === null) {
     return {
       name: serviceName,
@@ -26,7 +34,12 @@ export function parseContainerState(
   }
 
   const record = parsed as Record<string, unknown>;
-  const status = typeof record.Status === "string" ? record.Status : undefined;
+  const status =
+    typeof record.Status === "string"
+      ? record.Status
+      : typeof record.status === "string"
+        ? record.status
+        : undefined;
   const health =
     typeof record.Health === "object" && record.Health !== null
       ? (record.Health as Record<string, unknown>)

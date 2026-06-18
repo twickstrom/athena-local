@@ -106,7 +106,7 @@ It is not a full AWS emulator. IAM, Lake Formation, KMS, Glue crawlers, billing,
 
 ## AWS SDK Athena API Support Matrix
 
-The `@aws-sdk/client-athena` v3 client exposes ~70 operations. Athena Local implements the four that make up the synchronous query path most applications depend on; the request/response shapes are exercised by the real SDK in tests. Every other operation returns a structured `InvalidRequestException` (`Unsupported Athena operation: <name>`) rather than a partial emulation, so application code fails loudly instead of trusting a fake.
+The `@aws-sdk/client-athena` v3 client exposes ~70 operations. Athena Local implements the twelve that real application data-access code actually calls — the async query lifecycle, batch/list query reads, workgroup output discovery, and read-only catalog metadata; the request/response shapes are exercised by the real SDK in tests. Every other operation returns a structured `InvalidRequestException` (`Unsupported Athena operation: <name>`) rather than a partial emulation, so application code fails loudly instead of trusting a fake.
 
 **Implementation type** distinguishes how an operation is backed:
 
@@ -122,6 +122,20 @@ The `@aws-sdk/client-athena` v3 client exposes ~70 operations. Athena Local impl
 | `GetQueryExecution` | ✅ | Full | `e2e`, `integration`, `protocol`, `unit` | Returns state (`QUEUED`/`RUNNING`/`SUCCEEDED`/`FAILED`/`CANCELLED`), context, output location, `StateChangeReason`, and statistics. |
 | `GetQueryResults` | ✅ | Full | `e2e`, `integration`, `unit` | Returns `ResultSetMetadata`, header row, data rows, with `MaxResults` + opaque `NextToken` pagination. |
 | `StopQueryExecution` | ✅ | Full | `integration`, `protocol`, `unit` | Cancels the running Trino query and persists `CANCELLED`. |
+| `BatchGetQueryExecution` | ✅ | Full | `protocol`, `unit` | Returns `QueryExecutions` for known IDs and reports unknown IDs under `UnprocessedQueryExecutionIds`. |
+| `ListQueryExecutions` | ✅ | Full | `protocol`, `unit` | Lists execution IDs most-recent-first with `MaxResults` + opaque `NextToken`; optional `WorkGroup` filter. |
+| `GetWorkGroup` | ✅ | Full | `protocol`, `unit` | Reports the configured result `OutputLocation` for the requested workgroup. Local config only — no enforcement. |
+| `ListWorkGroups` | ✅ | Full | `protocol`, `unit` | Returns the single default local workgroup summary. |
+| `GetDatabase` | ✅ | Full | `protocol`, `unit` | Resolves a database via Trino `information_schema`; throws `MetadataException` when absent. |
+| `ListDatabases` | ✅ | Full | `protocol`, `unit` | Lists databases from `information_schema` (excludes the system `information_schema`), paginated. |
+| `GetTableMetadata` | ✅ | Full | `protocol`, `unit` | Returns a table's columns (name + type) from `information_schema`. See type-mapping note below. |
+| `ListTableMetadata` | ✅ | Full | `protocol`, `unit` | Lists a database's tables with columns; supports the `Expression` substring filter and pagination. |
+
+Notes on the catalog operations:
+
+- `CatalogName` is accepted but the local stack exposes a single catalog (Hive via Trino); requests resolve against it.
+- Column `Type` is reported as the Trino `information_schema` type (e.g. `integer`, `varchar`), which is close to but not byte-identical with Athena/Hive type names. `PartitionKeys` are returned in `Columns` rather than split out.
+- Database and table names are validated as plain identifiers (`[A-Za-z_][A-Za-z0-9_]*`) before they reach `information_schema`, so metadata lookups have no SQL-injection surface.
 
 ### Not implemented
 
@@ -129,12 +143,12 @@ Every operation below is routed and rejected with `InvalidRequestException`. The
 
 | Capability area | Operations | Status | Why |
 | --- | --- | :---: | --- |
-| Batch query lookups | `BatchGetQueryExecution`, `BatchGetNamedQuery`, `BatchGetPreparedStatement` | ❌ | Not planned — batch convenience wrappers over single-item reads outside the core path. |
-| Query history | `ListQueryExecutions`, `GetQueryRuntimeStatistics` | ❌ | Not planned — Athena Local persists state in SQLite, not as a queryable Athena history API. |
-| Workgroups | `CreateWorkGroup`, `GetWorkGroup`, `UpdateWorkGroup`, `DeleteWorkGroup`, `ListWorkGroups` | ❌ | Not planned — workgroups are recorded for response shape only; no policy/limit enforcement. |
-| Data Catalog / Glue | `CreateDataCatalog`, `GetDataCatalog`, `UpdateDataCatalog`, `DeleteDataCatalog`, `ListDataCatalogs`, `GetDatabase`, `ListDatabases`, `GetTableMetadata`, `ListTableMetadata` | ❌ | Not planned — catalog metadata lives in Hive Metastore and is queried through Trino SQL, not the Athena/Glue catalog APIs. |
+| Batch / saved-query lookups | `BatchGetNamedQuery`, `BatchGetPreparedStatement` | ❌ | Not planned — batch reads over named-query/prepared-statement features that are themselves out of scope. |
+| Runtime statistics | `GetQueryRuntimeStatistics` | ❌ | Not planned — detailed per-stage Trino statistics are not surfaced through the Athena shape. |
+| Workgroup management | `CreateWorkGroup`, `UpdateWorkGroup`, `DeleteWorkGroup` | ❌ | Not planned — the local workgroup is read-only; there is no policy/limit enforcement to manage. |
+| Data Catalog registration | `CreateDataCatalog`, `GetDataCatalog`, `UpdateDataCatalog`, `DeleteDataCatalog`, `ListDataCatalogs` | ❌ | Not planned — the local catalog is fixed (Hive via Trino); there is nothing to register or switch. |
+| Prepared statements | `CreatePreparedStatement`, `GetPreparedStatement`, `UpdatePreparedStatement`, `DeletePreparedStatement`, `ListPreparedStatements` | ❌ | Not yet — see the assessment below; supportable, but deferred until there is demand. |
 | Named queries | `CreateNamedQuery`, `GetNamedQuery`, `UpdateNamedQuery`, `DeleteNamedQuery`, `ListNamedQueries` | ❌ | Not planned — saved-query management is not part of the execution path. |
-| Prepared statements | `CreatePreparedStatement`, `GetPreparedStatement`, `UpdatePreparedStatement`, `DeletePreparedStatement`, `ListPreparedStatements` | ❌ | Not planned — server-side prepared statements are not modeled. |
 | Notebooks & Spark sessions | `CreateNotebook`, `ImportNotebook`, `ExportNotebook`, `UpdateNotebook`, `DeleteNotebook`, `GetNotebookMetadata`, `UpdateNotebookMetadata`, `ListNotebookMetadata`, `ListNotebookSessions`, `CreatePresignedNotebookUrl`, `StartSession`, `GetSession`, `GetSessionStatus`, `GetSessionEndpoint`, `ListSessions`, `TerminateSession` | ❌ | Not planned — the PySpark/notebook engine is not part of an SQL-on-Trino facade. |
 | Calculations (Spark) | `StartCalculationExecution`, `StopCalculationExecution`, `GetCalculationExecution`, `GetCalculationExecutionCode`, `GetCalculationExecutionStatus`, `ListCalculationExecutions` | ❌ | Not planned — Spark calculation execution is out of scope. |
 | Capacity reservations | `CreateCapacityReservation`, `GetCapacityReservation`, `UpdateCapacityReservation`, `CancelCapacityReservation`, `DeleteCapacityReservation`, `ListCapacityReservations`, `GetCapacityAssignmentConfiguration`, `PutCapacityAssignmentConfiguration` | ❌ | Not planned — provisioned capacity is an AWS billing/scheduling concept with no local equivalent. |
@@ -142,6 +156,16 @@ Every operation below is routed and rejected with `InvalidRequestException`. The
 | Tagging | `TagResource`, `UntagResource`, `ListTagsForResource` | ❌ | Not planned — no AWS resource model to tag locally. |
 
 > If your application depends on one of these, open an issue describing the use case. The bar for adding an operation is a real application-integration need plus AWS SDK contract coverage — not breadth for its own sake.
+
+### Supporting prepared statements (assessment)
+
+Prepared statements are the one deferred item that is genuinely supportable. Difficulty: **medium** — more than the catalog operations, less than the core query path. What it would take:
+
+- **State.** A new `prepared_statement` table (name, workgroup, query text, timestamps) and a repository, mirroring the existing query-execution store. `Create/Get/Update/Delete/ListPreparedStatements` then become thin CRUD handlers (a day's work, low risk).
+- **Execution wiring (the real work).** Athena runs a prepared statement via `StartQueryExecution` with `QueryString = "EXECUTE stmt USING val1, val2"` plus `ExecutionParameters`. The facade already accepts `ExecutionParameters`; it would need to (a) detect the `EXECUTE … USING` form, (b) look up the stored statement, and (c) bind parameters. Trino's own `PREPARE`/`EXECUTE` is **session-scoped**, so a stored Athena statement can't be reused across Trino sessions directly. The clean approach is to substitute parameters into the stored SQL ourselves (Trino `EXECUTE IMMEDIATE` or literal binding with strict typing/escaping), which means a small, well-tested parameter-binding layer.
+- **Risk.** The binding layer is the only sharp edge — it must escape and type parameters correctly to avoid both SQL injection and type mismatches. That is exactly the kind of thing to cover with heavy unit tests.
+
+Rough estimate: ~1–2 days including tests. It is deferred only because no current use case demands it, not because it is hard to do well.
 
 ## Supported Query Behavior
 

@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import type { AthenaOperationHandlers } from "../../src/protocol/athena-types.ts";
 import { routeAthenaRequest } from "../../src/protocol/router.ts";
+import { createHandlers } from "../support/handlers.ts";
 
-const handlers: AthenaOperationHandlers = {
+const handlers = createHandlers({
   StartQueryExecution: (input) => ({
     QueryExecutionId: `started:${input.QueryString}`,
   }),
@@ -21,7 +21,7 @@ const handlers: AthenaOperationHandlers = {
     ...(input.NextToken === undefined ? {} : { NextToken: input.NextToken }),
   }),
   StopQueryExecution: () => ({}),
-};
+});
 
 describe("AWS JSON Athena protocol routing", () => {
   test("routes StartQueryExecution by X-Amz-Target", async () => {
@@ -49,7 +49,7 @@ describe("AWS JSON Athena protocol routing", () => {
       {
         method: "POST",
         headers: {
-          "X-Amz-Target": "AmazonAthena.ListWorkGroups",
+          "X-Amz-Target": "AmazonAthena.CreateNotebook",
         },
         body: {},
       },
@@ -59,7 +59,7 @@ describe("AWS JSON Athena protocol routing", () => {
     expect(response.status).toBe(400);
     expect(response.body).toEqual({
       __type: "InvalidRequestException",
-      message: "Unsupported Athena operation: AmazonAthena.ListWorkGroups",
+      message: "Unsupported Athena operation: AmazonAthena.CreateNotebook",
     });
   });
 

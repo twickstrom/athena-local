@@ -1,7 +1,23 @@
 import type {
   AthenaOperationHandlers,
+  BatchGetQueryExecutionInput,
+  BatchGetQueryExecutionOutput,
+  GetDatabaseInput,
+  GetDatabaseOutput,
   GetQueryExecutionOutput,
   GetQueryResultsOutput,
+  GetTableMetadataInput,
+  GetTableMetadataOutput,
+  GetWorkGroupInput,
+  GetWorkGroupOutput,
+  ListDatabasesInput,
+  ListDatabasesOutput,
+  ListQueryExecutionsInput,
+  ListQueryExecutionsOutput,
+  ListTableMetadataInput,
+  ListTableMetadataOutput,
+  ListWorkGroupsInput,
+  ListWorkGroupsOutput,
   StartQueryExecutionInput,
   StartQueryExecutionOutput,
   StopQueryExecutionOutput,
@@ -9,7 +25,7 @@ import type {
 import { AthenaProtocolError } from "../protocol/errors.ts";
 import { buildAthenaResultSet } from "../results/rows.ts";
 import { materializeCsvResult } from "../results/materialize.ts";
-import { paginateRows } from "../results/pagination.ts";
+import { paginateList, paginateRows } from "../results/pagination.ts";
 import type { AthenaRow } from "../results/types.ts";
 import { QueryExecutionRepository } from "../state/repository.ts";
 import { terminalQueryStates, type QueryExecutionRecord } from "../state/types.ts";
@@ -97,31 +113,256 @@ export class AthenaFacadeService implements AthenaOperationHandlers {
     readonly QueryExecutionId: string;
   }): GetQueryExecutionOutput {
     const record = this.#requireRecord(input.QueryExecutionId);
+    return { QueryExecution: this.#queryExecutionView(record) };
+  }
+
+  #queryExecutionView(record: QueryExecutionRecord): Record<string, unknown> {
     return {
-      QueryExecution: {
-        QueryExecutionId: record.queryExecutionId,
-        Query: record.queryText,
-        ResultConfiguration: {
-          OutputLocation: record.resultS3Uri ?? record.outputLocation,
-        },
-        QueryExecutionContext: removeUndefined({
-          Database: record.databaseName,
-          Catalog: record.catalogName,
-        }),
-        Status: removeUndefined({
-          State: record.state,
-          StateChangeReason: record.stateReason,
-          SubmissionDateTime: record.submittedAt,
-          CompletionDateTime: record.completedAt,
-        }),
-        Statistics: {
-          EngineExecutionTimeInMillis: record.engineExecutionMs,
-          TotalExecutionTimeInMillis: record.totalExecutionMs,
-          DataScannedInBytes: record.scannedBytes,
-        },
-        WorkGroup: record.workgroup,
+      QueryExecutionId: record.queryExecutionId,
+      Query: record.queryText,
+      ResultConfiguration: {
+        OutputLocation: record.resultS3Uri ?? record.outputLocation,
+      },
+      QueryExecutionContext: removeUndefined({
+        Database: record.databaseName,
+        Catalog: record.catalogName,
+      }),
+      Status: removeUndefined({
+        State: record.state,
+        StateChangeReason: record.stateReason,
+        SubmissionDateTime: record.submittedAt,
+        CompletionDateTime: record.completedAt,
+      }),
+      Statistics: {
+        EngineExecutionTimeInMillis: record.engineExecutionMs,
+        TotalExecutionTimeInMillis: record.totalExecutionMs,
+        DataScannedInBytes: record.scannedBytes,
+      },
+      WorkGroup: record.workgroup,
+    };
+  }
+
+  BatchGetQueryExecution(
+    input: BatchGetQueryExecutionInput,
+  ): BatchGetQueryExecutionOutput {
+    const queryExecutions: Record<string, unknown>[] = [];
+    const unprocessed: Record<string, unknown>[] = [];
+    for (const id of input.QueryExecutionIds) {
+      const record = this.#repository.findById(id);
+      if (record === undefined) {
+        unprocessed.push({
+          QueryExecutionId: id,
+          ErrorCode: "INVALID_INPUT",
+          ErrorMessage: `Unknown query execution ID: ${id}`,
+        });
+      } else {
+        queryExecutions.push(this.#queryExecutionView(record));
+      }
+    }
+    return {
+      QueryExecutions: queryExecutions,
+      UnprocessedQueryExecutionIds: unprocessed,
+    };
+  }
+
+  ListQueryExecutions(
+    input: ListQueryExecutionsInput,
+  ): ListQueryExecutionsOutput {
+    const records = this.#repository
+      .listAll()
+      .filter(
+        (record) =>
+          input.WorkGroup === undefined || record.workgroup === input.WorkGroup,
+      );
+    const page = paginateList({
+      items: records.map((record) => record.queryExecutionId),
+      scope: "ListQueryExecutions",
+      ...(input.MaxResults === undefined ? {} : { maxResults: input.MaxResults }),
+      ...(input.NextToken === undefined ? {} : { nextToken: input.NextToken }),
+    });
+    return removeUndefined({
+      QueryExecutionIds: page.items,
+      NextToken: page.nextToken,
+    }) as ListQueryExecutionsOutput;
+  }
+
+  GetWorkGroup(input: GetWorkGroupInput): GetWorkGroupOutput {
+    // The local stack has a single effective workgroup configuration; report it
+    // under whatever name the caller asked for so apps that pin a custom
+    // workgroup still resolve their output location.
+    return { WorkGroup: this.#workGroupView(input.WorkGroup) };
+  }
+
+  ListWorkGroups(input: ListWorkGroupsInput): ListWorkGroupsOutput {
+    const summary = {
+      Name: this.#config.defaultWorkgroup,
+      State: "ENABLED",
+      Description: "Athena Local default workgroup.",
+      EngineVersion: {
+        SelectedEngineVersion: "AUTO",
+        EffectiveEngineVersion: "Athena engine version 3",
       },
     };
+    const page = paginateList({
+      items: [summary],
+      scope: "ListWorkGroups",
+      ...(input.MaxResults === undefined ? {} : { maxResults: input.MaxResults }),
+      ...(input.NextToken === undefined ? {} : { nextToken: input.NextToken }),
+    });
+    return removeUndefined({
+      WorkGroups: page.items,
+      NextToken: page.nextToken,
+    }) as ListWorkGroupsOutput;
+  }
+
+  #workGroupView(name: string): Record<string, unknown> {
+    return {
+      Name: name,
+      State: "ENABLED",
+      Description: "Athena Local default workgroup.",
+      Configuration: {
+        ResultConfiguration: {
+          OutputLocation: this.#config.defaultOutputLocation,
+        },
+        EnforceWorkGroupConfiguration: false,
+        PublishCloudWatchMetricsEnabled: false,
+        EngineVersion: {
+          SelectedEngineVersion: "AUTO",
+          EffectiveEngineVersion: "Athena engine version 3",
+        },
+      },
+    };
+  }
+
+  async GetDatabase(input: GetDatabaseInput): Promise<GetDatabaseOutput> {
+    const result = await this.#runMetadataQuery(
+      `SELECT schema_name FROM information_schema.schemata WHERE schema_name = '${input.DatabaseName}'`,
+    );
+    if (result.rows.length === 0) {
+      throw new AthenaProtocolError(
+        "MetadataException",
+        `Database ${input.DatabaseName} not found in catalog ${input.CatalogName}.`,
+      );
+    }
+    return { Database: { Name: input.DatabaseName } };
+  }
+
+  async ListDatabases(input: ListDatabasesInput): Promise<ListDatabasesOutput> {
+    const result = await this.#runMetadataQuery(
+      "SELECT schema_name FROM information_schema.schemata ORDER BY schema_name",
+    );
+    const databases = result.rows
+      .map((row) => String(row[0]))
+      .filter((name) => name !== "information_schema")
+      .map((name) => ({ Name: name }));
+    const page = paginateList({
+      items: databases,
+      scope: "ListDatabases",
+      ...(input.MaxResults === undefined ? {} : { maxResults: input.MaxResults }),
+      ...(input.NextToken === undefined ? {} : { nextToken: input.NextToken }),
+    });
+    return removeUndefined({
+      DatabaseList: page.items,
+      NextToken: page.nextToken,
+    }) as ListDatabasesOutput;
+  }
+
+  async GetTableMetadata(
+    input: GetTableMetadataInput,
+  ): Promise<GetTableMetadataOutput> {
+    const result = await this.#runMetadataQuery(
+      `SELECT column_name, data_type FROM information_schema.columns ` +
+        `WHERE table_schema = '${input.DatabaseName}' AND table_name = '${input.TableName}' ` +
+        `ORDER BY ordinal_position`,
+    );
+    if (result.rows.length === 0) {
+      throw new AthenaProtocolError(
+        "MetadataException",
+        `Table ${input.DatabaseName}.${input.TableName} not found.`,
+      );
+    }
+    return {
+      TableMetadata: {
+        Name: input.TableName,
+        TableType: "EXTERNAL_TABLE",
+        Columns: result.rows.map((row) => ({
+          Name: String(row[0]),
+          Type: String(row[1]),
+        })),
+        PartitionKeys: [],
+        Parameters: {},
+      },
+    };
+  }
+
+  async ListTableMetadata(
+    input: ListTableMetadataInput,
+  ): Promise<ListTableMetadataOutput> {
+    const result = await this.#runMetadataQuery(
+      `SELECT table_name, column_name, data_type FROM information_schema.columns ` +
+        `WHERE table_schema = '${input.DatabaseName}' ` +
+        `ORDER BY table_name, ordinal_position`,
+    );
+
+    const byTable = new Map<string, { Name: string; Type: string }[]>();
+    for (const row of result.rows) {
+      const tableName = String(row[0]);
+      const columns = byTable.get(tableName) ?? [];
+      columns.push({ Name: String(row[1]), Type: String(row[2]) });
+      byTable.set(tableName, columns);
+    }
+
+    const filter = input.Expression?.toLowerCase();
+    const tables = [...byTable.entries()]
+      .filter(([name]) => filter === undefined || name.toLowerCase().includes(filter))
+      .map(([name, columns]) => ({
+        Name: name,
+        TableType: "EXTERNAL_TABLE",
+        Columns: columns,
+        PartitionKeys: [],
+        Parameters: {},
+      }));
+
+    const page = paginateList({
+      items: tables,
+      scope: "ListTableMetadata",
+      ...(input.MaxResults === undefined ? {} : { maxResults: input.MaxResults }),
+      ...(input.NextToken === undefined ? {} : { nextToken: input.NextToken }),
+    });
+    return removeUndefined({
+      TableMetadataList: page.items,
+      NextToken: page.nextToken,
+    }) as ListTableMetadataOutput;
+  }
+
+  // Run a read-only metadata query against Trino and collect all rows. Used for
+  // the information_schema-backed catalog operations.
+  async #runMetadataQuery(
+    sql: string,
+  ): Promise<{
+    readonly columns: readonly TrinoColumn[];
+    readonly rows: readonly (readonly unknown[])[];
+  }> {
+    const submitted = await this.#trino.submit(sql);
+    const columns: TrinoColumn[] = [];
+    const rows: (readonly unknown[])[] = [];
+    let page = submitted.page;
+    while (true) {
+      if (page.columns !== undefined && columns.length === 0) {
+        columns.push(...page.columns);
+      }
+      if (page.data !== undefined) {
+        rows.push(...page.data);
+      }
+      if (page.error !== undefined) {
+        throw new AthenaProtocolError("MetadataException", page.error.message);
+      }
+      if (page.nextUri === undefined) {
+        break;
+      }
+      page = await this.#trino.fetchNext(page.nextUri);
+    }
+    return { columns, rows };
   }
 
   GetQueryResults(input: {

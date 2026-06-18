@@ -1,8 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import {
   AthenaClient,
+  BatchGetQueryExecutionCommand,
+  GetDatabaseCommand,
   GetQueryExecutionCommand,
   GetQueryResultsCommand,
+  GetTableMetadataCommand,
+  GetWorkGroupCommand,
+  ListDatabasesCommand,
+  ListQueryExecutionsCommand,
+  ListTableMetadataCommand,
   StartQueryExecutionCommand,
 } from "@aws-sdk/client-athena";
 
@@ -81,6 +88,63 @@ describe("live stack end-to-end", () => {
         ["2", "two"],
         ["3", "three"],
       ]);
+
+      // Workgroup output discovery.
+      const workgroup = await athena.send(
+        new GetWorkGroupCommand({ WorkGroup: "primary" }),
+      );
+      expect(
+        workgroup.WorkGroup?.Configuration?.ResultConfiguration?.OutputLocation,
+      ).toContain("s3://athena-local-results/");
+
+      // Catalog metadata, backed by Trino information_schema.
+      const databases = await athena.send(
+        new ListDatabasesCommand({ CatalogName: "AwsDataCatalog" }),
+      );
+      expect(databases.DatabaseList?.map((database) => database.Name)).toContain(
+        "default",
+      );
+
+      const database = await athena.send(
+        new GetDatabaseCommand({
+          CatalogName: "AwsDataCatalog",
+          DatabaseName: "default",
+        }),
+      );
+      expect(database.Database?.Name).toBe("default");
+
+      const table = await athena.send(
+        new GetTableMetadataCommand({
+          CatalogName: "AwsDataCatalog",
+          DatabaseName: "default",
+          TableName: "athena_local_smoke",
+        }),
+      );
+      expect(table.TableMetadata?.Columns?.map((column) => column.Name)).toEqual([
+        "id",
+        "label",
+      ]);
+
+      const tables = await athena.send(
+        new ListTableMetadataCommand({
+          CatalogName: "AwsDataCatalog",
+          DatabaseName: "default",
+        }),
+      );
+      expect(
+        tables.TableMetadataList?.map((entry) => entry.Name),
+      ).toContain("athena_local_smoke");
+
+      // Query history reads for the execution we just ran.
+      const history = await athena.send(
+        new ListQueryExecutionsCommand({ MaxResults: 50 }),
+      );
+      expect(history.QueryExecutionIds).toContain(id);
+
+      const batch = await athena.send(
+        new BatchGetQueryExecutionCommand({ QueryExecutionIds: [id!] }),
+      );
+      expect(batch.QueryExecutions?.[0]?.QueryExecutionId).toBe(id);
     },
     60_000,
   );

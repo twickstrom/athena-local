@@ -1,8 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import {
   AthenaClient,
+  BatchGetQueryExecutionCommand,
+  GetDatabaseCommand,
   GetQueryExecutionCommand,
   GetQueryResultsCommand,
+  GetTableMetadataCommand,
+  GetWorkGroupCommand,
+  ListDatabasesCommand,
+  ListQueryExecutionsCommand,
+  ListTableMetadataCommand,
+  ListWorkGroupsCommand,
   StartQueryExecutionCommand,
   StopQueryExecutionCommand,
 } from "@aws-sdk/client-athena";
@@ -11,9 +19,14 @@ import type { HttpRequest } from "@smithy/core/protocols";
 import type { HttpHandlerOptions } from "@smithy/types";
 import type { AthenaOperationHandlers } from "../../src/protocol/athena-types.ts";
 import { createAthenaHttpHandler } from "../../src/server/http.ts";
+import { createHandlers } from "../support/handlers.ts";
 
-function createClient(handlers: AthenaOperationHandlers): AthenaClient {
-  const handler = createAthenaHttpHandler({ handlers });
+function createClient(
+  overrides: Partial<AthenaOperationHandlers>,
+): AthenaClient {
+  const handler = createAthenaHttpHandler({
+    handlers: createHandlers(overrides),
+  });
 
   return new AthenaClient({
     endpoint: "http://127.0.0.1:4567",
@@ -180,5 +193,145 @@ describe("AWS SDK Athena protocol compatibility", () => {
     );
 
     expect(stopped).toEqual(["query-1"]);
+  });
+});
+
+describe("AWS SDK catalog and workgroup compatibility", () => {
+  test("round-trips GetWorkGroup", async () => {
+    const client = createClient({
+      GetWorkGroup: (input) => {
+        expect(input.WorkGroup).toBe("primary");
+        return {
+          WorkGroup: {
+            Name: "primary",
+            State: "ENABLED",
+            Configuration: {
+              ResultConfiguration: {
+                OutputLocation: "s3://athena-local-results/local/",
+              },
+            },
+          },
+        };
+      },
+    });
+
+    const output = await client.send(
+      new GetWorkGroupCommand({ WorkGroup: "primary" }),
+    );
+    expect(output.WorkGroup?.Configuration?.ResultConfiguration?.OutputLocation).toBe(
+      "s3://athena-local-results/local/",
+    );
+  });
+
+  test("round-trips ListWorkGroups", async () => {
+    const client = createClient({
+      ListWorkGroups: () => ({
+        WorkGroups: [{ Name: "primary", State: "ENABLED" }],
+      }),
+    });
+    const output = await client.send(new ListWorkGroupsCommand({}));
+    expect(output.WorkGroups?.[0]?.Name).toBe("primary");
+  });
+
+  test("round-trips BatchGetQueryExecution", async () => {
+    const client = createClient({
+      BatchGetQueryExecution: (input) => {
+        expect(input.QueryExecutionIds).toEqual(["q-1", "missing"]);
+        return {
+          QueryExecutions: [
+            { QueryExecutionId: "q-1", Status: { State: "SUCCEEDED" } },
+          ],
+          UnprocessedQueryExecutionIds: [
+            { QueryExecutionId: "missing", ErrorCode: "INVALID_INPUT" },
+          ],
+        };
+      },
+    });
+
+    const output = await client.send(
+      new BatchGetQueryExecutionCommand({
+        QueryExecutionIds: ["q-1", "missing"],
+      }),
+    );
+    expect(output.QueryExecutions?.[0]?.QueryExecutionId).toBe("q-1");
+    expect(output.UnprocessedQueryExecutionIds?.[0]?.ErrorCode).toBe(
+      "INVALID_INPUT",
+    );
+  });
+
+  test("round-trips ListQueryExecutions with a NextToken", async () => {
+    const client = createClient({
+      ListQueryExecutions: () => ({
+        QueryExecutionIds: ["q-2", "q-1"],
+        NextToken: "next",
+      }),
+    });
+    const output = await client.send(new ListQueryExecutionsCommand({}));
+    expect(output.QueryExecutionIds).toEqual(["q-2", "q-1"]);
+    expect(output.NextToken).toBe("next");
+  });
+
+  test("round-trips GetDatabase and ListDatabases", async () => {
+    const client = createClient({
+      GetDatabase: (input) => {
+        expect(input.DatabaseName).toBe("sales");
+        return { Database: { Name: "sales" } };
+      },
+      ListDatabases: () => ({
+        DatabaseList: [{ Name: "default" }, { Name: "sales" }],
+      }),
+    });
+
+    const database = await client.send(
+      new GetDatabaseCommand({ CatalogName: "AwsDataCatalog", DatabaseName: "sales" }),
+    );
+    expect(database.Database?.Name).toBe("sales");
+
+    const list = await client.send(
+      new ListDatabasesCommand({ CatalogName: "AwsDataCatalog" }),
+    );
+    expect(list.DatabaseList?.map((database) => database.Name)).toEqual([
+      "default",
+      "sales",
+    ]);
+  });
+
+  test("round-trips GetTableMetadata and ListTableMetadata", async () => {
+    const client = createClient({
+      GetTableMetadata: (input) => {
+        expect(input.TableName).toBe("events");
+        return {
+          TableMetadata: {
+            Name: "events",
+            Columns: [{ Name: "id", Type: "integer" }],
+          },
+        };
+      },
+      ListTableMetadata: () => ({
+        TableMetadataList: [{ Name: "events" }, { Name: "orders" }],
+        NextToken: "more",
+      }),
+    });
+
+    const table = await client.send(
+      new GetTableMetadataCommand({
+        CatalogName: "AwsDataCatalog",
+        DatabaseName: "default",
+        TableName: "events",
+      }),
+    );
+    expect(table.TableMetadata?.Columns?.[0]?.Name).toBe("id");
+
+    const list = await client.send(
+      new ListTableMetadataCommand({
+        CatalogName: "AwsDataCatalog",
+        DatabaseName: "default",
+      }),
+    );
+    expect(list.TableMetadataList?.map((table) => table.Name)).toEqual([
+      "events",
+      "orders",
+    ]);
+    expect(list.NextToken).toBe("more");
   });
 });

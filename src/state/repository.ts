@@ -179,6 +179,17 @@ export class QueryExecutionRepository {
 
     return rows.map(mapRow);
   }
+
+  // Most-recent-first, matching the order Athena's ListQueryExecutions returns.
+  listAll(): readonly QueryExecutionRecord[] {
+    const rows = this.#database
+      .query<QueryExecutionRow, []>(
+        "SELECT * FROM query_execution ORDER BY submitted_at DESC, query_execution_id DESC",
+      )
+      .all();
+
+    return rows.map(mapRow);
+  }
 }
 
 function mapRow(row: QueryExecutionRow): QueryExecutionRecord {

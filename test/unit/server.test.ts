@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import type { AthenaOperationHandlers } from "../../src/protocol/athena-types.ts";
 import { createAthenaHttpHandler } from "../../src/server/http.ts";
+import { createHandlers } from "../support/handlers.ts";
 
-const handlers: AthenaOperationHandlers = {
+const handlers = createHandlers({
   StartQueryExecution: () => ({ QueryExecutionId: "query-1" }),
   GetQueryExecution: () => ({
     QueryExecution: {
@@ -16,7 +16,7 @@ const handlers: AthenaOperationHandlers = {
     },
   }),
   StopQueryExecution: () => ({}),
-};
+});
 
 describe("Athena HTTP handler", () => {
   test("returns health response", async () => {

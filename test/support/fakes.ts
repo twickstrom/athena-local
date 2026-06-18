@@ -13,7 +13,14 @@ import type {
   StorageBackend,
   StorageWriteInput,
 } from "../../src/storage/types.ts";
-import type { TrinoPage, TrinoQuerySubmission } from "../../src/trino/types.ts";
+import type { TrinoClient } from "../../src/trino/client.ts";
+import type {
+  TrinoColumn,
+  TrinoPage,
+  TrinoQuerySubmission,
+} from "../../src/trino/types.ts";
+
+export type TrinoLike = Pick<TrinoClient, "submit" | "fetchNext" | "cancel">;
 
 /**
  * In-memory storage backend that records writes and can serve them back, so
@@ -85,6 +92,42 @@ export class FakeTrino {
   }
 }
 
+/**
+ * Single-page Trino stand-in for metadata queries: each submitted SQL string is
+ * mapped to a column/row response, so information_schema lookups can be scripted
+ * deterministically. Pagination is not used by metadata queries.
+ */
+export class MetadataTrino {
+  readonly queries: string[] = [];
+
+  constructor(
+    private readonly responder: (sql: string) => {
+      readonly columns: readonly TrinoColumn[];
+      readonly data: readonly (readonly unknown[])[];
+    },
+  ) {}
+
+  async submit(sql: string): Promise<TrinoQuerySubmission> {
+    this.queries.push(sql);
+    const { columns, data } = this.responder(sql);
+    return {
+      queryId: "metadata-query",
+      page: {
+        id: "metadata-query",
+        columns,
+        data,
+        stats: { state: "FINISHED" },
+      },
+    };
+  }
+
+  async fetchNext(): Promise<TrinoPage> {
+    throw new Error("MetadataTrino does not paginate.");
+  }
+
+  async cancel(): Promise<void> {}
+}
+
 export interface FacadeHarness {
   readonly service: AthenaFacadeService;
   readonly repository: QueryExecutionRepository;
@@ -98,7 +141,7 @@ export interface FacadeHarness {
  * backend. Clock and id generators are deterministic.
  */
 export function createFacadeHarness(options: {
-  readonly trino: FakeTrino;
+  readonly trino: TrinoLike;
   readonly storage?: FakeStorage;
   readonly statePath?: string;
 }): FacadeHarness {

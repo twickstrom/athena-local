@@ -4,8 +4,16 @@ import type {
 } from "./athena-types.ts";
 import { awsError, awsJson, AthenaProtocolError, type AwsJsonResponse } from "./errors.ts";
 import {
+  validateBatchGetQueryExecutionInput,
+  validateGetDatabaseInput,
   validateGetQueryExecutionInput,
   validateGetQueryResultsInput,
+  validateGetTableMetadataInput,
+  validateGetWorkGroupInput,
+  validateListDatabasesInput,
+  validateListQueryExecutionsInput,
+  validateListTableMetadataInput,
+  validateListWorkGroupsInput,
   validateStartQueryExecutionInput,
   validateStopQueryExecutionInput,
 } from "./validate.ts";
@@ -66,6 +74,50 @@ export async function routeAthenaRequest(
             validateStopQueryExecutionInput(request.body),
           ),
         );
+      case "BatchGetQueryExecution":
+        return awsJson(
+          await handlers.BatchGetQueryExecution(
+            validateBatchGetQueryExecutionInput(request.body),
+          ),
+        );
+      case "ListQueryExecutions":
+        return awsJson(
+          await handlers.ListQueryExecutions(
+            validateListQueryExecutionsInput(request.body),
+          ),
+        );
+      case "GetWorkGroup":
+        return awsJson(
+          await handlers.GetWorkGroup(validateGetWorkGroupInput(request.body)),
+        );
+      case "ListWorkGroups":
+        return awsJson(
+          await handlers.ListWorkGroups(
+            validateListWorkGroupsInput(request.body),
+          ),
+        );
+      case "GetDatabase":
+        return awsJson(
+          await handlers.GetDatabase(validateGetDatabaseInput(request.body)),
+        );
+      case "ListDatabases":
+        return awsJson(
+          await handlers.ListDatabases(
+            validateListDatabasesInput(request.body),
+          ),
+        );
+      case "GetTableMetadata":
+        return awsJson(
+          await handlers.GetTableMetadata(
+            validateGetTableMetadataInput(request.body),
+          ),
+        );
+      case "ListTableMetadata":
+        return awsJson(
+          await handlers.ListTableMetadata(
+            validateListTableMetadataInput(request.body),
+          ),
+        );
     }
   } catch (error) {
     if (error instanceof AthenaProtocolError) {
@@ -86,7 +138,15 @@ function isAthenaOperation(value: string): value is AthenaOperationName {
     value === "StartQueryExecution" ||
     value === "GetQueryExecution" ||
     value === "GetQueryResults" ||
-    value === "StopQueryExecution"
+    value === "StopQueryExecution" ||
+    value === "BatchGetQueryExecution" ||
+    value === "ListQueryExecutions" ||
+    value === "GetWorkGroup" ||
+    value === "ListWorkGroups" ||
+    value === "GetDatabase" ||
+    value === "ListDatabases" ||
+    value === "GetTableMetadata" ||
+    value === "ListTableMetadata"
   );
 }
 

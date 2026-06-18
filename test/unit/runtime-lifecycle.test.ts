@@ -60,6 +60,19 @@ describe("runtime lifecycle execution", () => {
       rollbackCommands,
     );
   });
+
+  test("continues past allowed cleanup failures", async () => {
+    const commands = [
+      createCommandSpec("docker", ["rm", "-f", "missing"], { allowFailure: true }),
+      createCommandSpec("docker", ["network", "create", "athena-local"]),
+    ];
+    const executor = scriptedExecutor([fail("missing"), ok("created")]);
+
+    const result = await executeRuntimePlan({ commands }, executor);
+
+    expect(result.ok).toBe(true);
+    expect(result.executed.map((record) => record.result.exitCode)).toEqual([1, 0]);
+  });
 });
 
 function scriptedExecutor(results: readonly CommandResult[]): ProcessExecutor {

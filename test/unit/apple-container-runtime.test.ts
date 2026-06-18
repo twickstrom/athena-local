@@ -100,6 +100,7 @@ describe("Apple container runtime adapter command generation", () => {
       {
         executable: "container",
         args: ["stop", "athena-local-minio"],
+        allowFailure: true,
       },
     ]);
 
@@ -107,14 +108,17 @@ describe("Apple container runtime adapter command generation", () => {
       {
         executable: "container",
         args: ["rm", "athena-local-minio"],
+        allowFailure: true,
       },
       {
         executable: "container",
         args: ["volume", "rm", "athena-local-minio-data"],
+        allowFailure: true,
       },
       {
         executable: "container",
         args: ["network", "rm", "athena-local"],
+        allowFailure: true,
       },
     ]);
   });

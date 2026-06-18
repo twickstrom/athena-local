@@ -67,6 +67,7 @@ describe("runtime plan summaries", () => {
     expect(reset.commands[0]).toEqual({
       executable: "container",
       args: ["rm", "athena-local-postgres"],
+      allowFailure: true,
     });
     expect(reset.commands[7]).toEqual({
       executable: "container",

@@ -94,19 +94,21 @@ export class AppleContainerRuntimeAdapter implements RuntimeAdapter {
 
   planStop(services: readonly RuntimeServiceDefinition[]): readonly CommandSpec[] {
     return services.map((service) =>
-      container("stop", this.#containerName(service.name)),
+      containerAllowFailure("stop", this.#containerName(service.name)),
     );
   }
 
   planDestroy(services: readonly RuntimeServiceDefinition[]): readonly CommandSpec[] {
     return [
       ...services.flatMap((service) => [
-        container("rm", this.#containerName(service.name)),
+        containerAllowFailure("rm", this.#containerName(service.name)),
         ...service.volumes
           .filter((volume) => volume.source?.type !== "bind")
-          .map((volume) => container("volume", "rm", this.#volumeName(volume.name))),
+          .map((volume) =>
+            containerAllowFailure("volume", "rm", this.#volumeName(volume.name)),
+          ),
       ]),
-      container("network", "rm", this.#networkName),
+      containerAllowFailure("network", "rm", this.#networkName),
     ];
   }
 
@@ -168,6 +170,10 @@ export class AppleContainerRuntimeAdapter implements RuntimeAdapter {
 
 function container(...args: readonly string[]): CommandSpec {
   return createCommandSpec("container", args);
+}
+
+function containerAllowFailure(...args: readonly string[]): CommandSpec {
+  return createCommandSpec("container", args, { allowFailure: true });
 }
 
 export function parseAppleContainerVersion(output: string): string | undefined {

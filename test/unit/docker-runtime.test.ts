@@ -92,6 +92,7 @@ describe("Docker runtime adapter command generation", () => {
       {
         executable: "docker",
         args: ["stop", "athena-local-trino"],
+        allowFailure: true,
       },
     ]);
 
@@ -99,14 +100,17 @@ describe("Docker runtime adapter command generation", () => {
       {
         executable: "docker",
         args: ["rm", "-f", "athena-local-trino"],
+        allowFailure: true,
       },
       {
         executable: "docker",
         args: ["volume", "rm", "athena-local-trino-data"],
+        allowFailure: true,
       },
       {
         executable: "docker",
         args: ["network", "rm", "athena-local"],
+        allowFailure: true,
       },
     ]);
   });

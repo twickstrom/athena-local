@@ -96,18 +96,22 @@ export class DockerRuntimeAdapter implements RuntimeAdapter {
   }
 
   planStop(services: readonly RuntimeServiceDefinition[]): readonly CommandSpec[] {
-    return services.map((service) => docker("stop", this.#containerName(service.name)));
+    return services.map((service) =>
+      dockerAllowFailure("stop", this.#containerName(service.name)),
+    );
   }
 
   planDestroy(services: readonly RuntimeServiceDefinition[]): readonly CommandSpec[] {
     return [
       ...services.flatMap((service) => [
-        docker("rm", "-f", this.#containerName(service.name)),
+        dockerAllowFailure("rm", "-f", this.#containerName(service.name)),
         ...service.volumes
           .filter((volume) => volume.source?.type !== "bind")
-          .map((volume) => docker("volume", "rm", this.#volumePrefix(volume.name))),
+          .map((volume) =>
+            dockerAllowFailure("volume", "rm", this.#volumePrefix(volume.name)),
+          ),
       ]),
-      docker("network", "rm", this.#networkName),
+      dockerAllowFailure("network", "rm", this.#networkName),
     ];
   }
 
@@ -171,6 +175,10 @@ export class DockerRuntimeAdapter implements RuntimeAdapter {
 
 function docker(...args: readonly string[]): CommandSpec {
   return createCommandSpec("docker", args);
+}
+
+function dockerAllowFailure(...args: readonly string[]): CommandSpec {
+  return createCommandSpec("docker", args, { allowFailure: true });
 }
 
 export function parseDockerVersion(output: string): string | undefined {

@@ -30,7 +30,7 @@ export async function executeRuntimePlan(
     const result = await executor.run(command);
     executed.push({ command, result });
 
-    if (result.exitCode !== 0) {
+    if (result.exitCode !== 0 && command.allowFailure !== true) {
       const rollbackExecuted = await executeRollback(
         input.rollbackCommands ?? [],
         executor,

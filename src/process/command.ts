@@ -3,6 +3,7 @@ export interface CommandSpec {
   readonly args: readonly string[];
   readonly env?: Readonly<Record<string, string>>;
   readonly cwd?: string;
+  readonly allowFailure?: boolean;
 }
 
 export interface CommandResult {
@@ -23,6 +24,7 @@ export function createCommandSpec(
   options: {
     readonly env?: Readonly<Record<string, string>>;
     readonly cwd?: string;
+    readonly allowFailure?: boolean;
   } = {},
 ): CommandSpec {
   validateExecutable(executable);

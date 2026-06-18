@@ -180,6 +180,50 @@ describe("Apple container runtime adapter command generation", () => {
     });
   });
 
+  test("inspects Apple container service status", async () => {
+    const commands: CommandSpec[] = [];
+    const adapter = new AppleContainerRuntimeAdapter({
+      projectName: "athena-local",
+      networkName: "athena-local",
+      executor: sequenceExecutor(commands, [
+        {
+          exitCode: 0,
+          stdout: JSON.stringify({ Status: "created" }),
+          stderr: "",
+        },
+        {
+          exitCode: 0,
+          stdout: "{not-json",
+          stderr: "",
+        },
+      ]),
+    });
+
+    await expect(
+      adapter.status([service, { ...service, name: "trino" }]),
+    ).resolves.toEqual({
+      runtime: "apple-container",
+      available: true,
+      services: [
+        {
+          name: "minio",
+          state: "created",
+          healthy: false,
+        },
+        {
+          name: "trino",
+          state: "failed",
+          healthy: false,
+          message: "Container inspect output was not valid JSON.",
+        },
+      ],
+    });
+    expect(commands.map((command) => command.args)).toEqual([
+      ["inspect", "athena-local-minio"],
+      ["inspect", "athena-local-trino"],
+    ]);
+  });
+
   test("parses Apple container versions from command output", () => {
     expect(parseAppleContainerVersion("0.2.1\n")).toBe("0.2.1");
     expect(parseAppleContainerVersion("container version 0.2.1")).toBe("0.2.1");
@@ -194,6 +238,23 @@ function fakeExecutor(
   return {
     run: async (command) => {
       commands.push(command);
+      return result;
+    },
+  };
+}
+
+function sequenceExecutor(
+  commands: CommandSpec[],
+  results: Array<{ readonly exitCode: number; readonly stdout: string; readonly stderr: string }>,
+): ProcessExecutor {
+  const remaining = [...results];
+  return {
+    run: async (command) => {
+      commands.push(command);
+      const result = remaining.shift();
+      if (result === undefined) {
+        throw new Error("Unexpected command.");
+      }
       return result;
     },
   };

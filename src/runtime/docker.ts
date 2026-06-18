@@ -10,6 +10,7 @@ import {
   type RuntimeStatus,
   validateServiceDefinition,
 } from "./types.ts";
+import { missingServiceStatus, parseContainerState } from "./status.ts";
 
 export interface DockerAdapterOptions {
   readonly projectName: string;
@@ -66,6 +67,32 @@ export class DockerRuntimeAdapter implements RuntimeAdapter {
         docker("start", this.#containerName(service.name)),
       ]),
     ];
+  }
+
+  async status(services: readonly RuntimeServiceDefinition[]): Promise<RuntimeStatus> {
+    return {
+      runtime: "docker",
+      available: true,
+      services: await Promise.all(
+        services.map(async (service) => {
+          const result = await this.#executor.run(
+            docker(
+              "inspect",
+              "--format",
+              "{{json .State}}",
+              this.#containerName(service.name),
+            ),
+          );
+          if (result.exitCode !== 0) {
+            return missingServiceStatus(
+              service.name,
+              compactMessage(result.stderr, result.stdout, "Container is missing."),
+            );
+          }
+          return parseContainerState(service.name, result.stdout);
+        }),
+      ),
+    };
   }
 
   planStop(services: readonly RuntimeServiceDefinition[]): readonly CommandSpec[] {

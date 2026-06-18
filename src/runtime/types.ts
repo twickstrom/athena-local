@@ -62,6 +62,9 @@ export interface ServiceStatus {
 export interface RuntimeAdapter {
   readonly kind: RuntimeKind;
   readonly detect: () => Promise<RuntimeStatus>;
+  readonly status: (
+    services: readonly RuntimeServiceDefinition[],
+  ) => Promise<RuntimeStatus>;
   readonly planStart: (
     services: readonly RuntimeServiceDefinition[],
   ) => readonly CommandSpec[];

@@ -10,6 +10,7 @@ import {
   type RuntimeStatus,
   validateServiceDefinition,
 } from "./types.ts";
+import { missingServiceStatus, parseContainerState } from "./status.ts";
 
 export interface AppleContainerAdapterOptions {
   readonly projectName: string;
@@ -68,6 +69,27 @@ export class AppleContainerRuntimeAdapter implements RuntimeAdapter {
         container("start", this.#containerName(service.name)),
       ]),
     ];
+  }
+
+  async status(services: readonly RuntimeServiceDefinition[]): Promise<RuntimeStatus> {
+    return {
+      runtime: "apple-container",
+      available: true,
+      services: await Promise.all(
+        services.map(async (service) => {
+          const result = await this.#executor.run(
+            container("inspect", this.#containerName(service.name)),
+          );
+          if (result.exitCode !== 0) {
+            return missingServiceStatus(
+              service.name,
+              compactMessage(result.stderr, result.stdout, "Container is missing."),
+            );
+          }
+          return parseContainerState(service.name, result.stdout);
+        }),
+      ),
+    };
   }
 
   planStop(services: readonly RuntimeServiceDefinition[]): readonly CommandSpec[] {

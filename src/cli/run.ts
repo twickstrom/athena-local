@@ -6,6 +6,7 @@ import {
   type HostDiagnostics,
   type HostDoctorChecks,
 } from "../doctor/checks.ts";
+import { createLocalStackServices } from "../infra/services.ts";
 import { packageName, projectVersion } from "../index.ts";
 import {
   createBunProcessExecutor,
@@ -189,6 +190,10 @@ export async function runCliAsync(
     return result;
   }
 
+  if (parsed.command === "status" && resolved.config.containerRuntime !== undefined) {
+    return inspectRuntimeStatus(result, parsed.json, resolved.config, environment);
+  }
+
   if (
     parsed.command !== undefined &&
     isRuntimePlanCommand(parsed.command) &&
@@ -214,6 +219,33 @@ export async function runCliAsync(
       renderDoctorDiagnostics(diagnostics),
     ].join("\n"),
   );
+}
+
+async function inspectRuntimeStatus(
+  result: CliResult,
+  json: boolean,
+  config: AthenaLocalConfig,
+  environment: CliEnvironment,
+): Promise<CliResult> {
+  const adapter = createRuntimeAdapters(config, environment)[config.containerRuntime!];
+  const status = await adapter.status(createLocalStackServices());
+
+  if (json) {
+    const output = JSON.parse(result.stdout) as Record<string, unknown>;
+    return ok(
+      `${JSON.stringify(
+        {
+          ...output,
+          runtimeStatus: status,
+          serviceStatus: status.services,
+        },
+        null,
+        2,
+      )}\n`,
+    );
+  }
+
+  return ok(renderRuntimeStatus(status));
 }
 
 async function executeRuntimeCommand(
@@ -394,6 +426,17 @@ function renderDoctorDiagnostics(diagnostics: DoctorDiagnostics): string {
     ...diagnostics.host.writableDirectories.map((status) => {
       const message = status.message === undefined ? "" : ` - ${status.message}`;
       return `- ${status.path}: ${status.writable ? "writable" : "not writable"}${message}`;
+    }),
+    "",
+  ].join("\n");
+}
+
+function renderRuntimeStatus(status: RuntimeStatus): string {
+  return [
+    `Runtime: ${status.runtime}`,
+    ...status.services.map((service) => {
+      const message = service.message === undefined ? "" : ` - ${service.message}`;
+      return `- ${service.name}: ${service.state}, healthy=${service.healthy}${message}`;
     }),
     "",
   ].join("\n");

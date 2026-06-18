@@ -172,6 +172,52 @@ describe("Docker runtime adapter command generation", () => {
     });
   });
 
+  test("inspects Docker service status", async () => {
+    const commands: CommandSpec[] = [];
+    const adapter = new DockerRuntimeAdapter({
+      projectName: "athena-local",
+      networkName: "athena-local",
+      executor: sequenceExecutor(commands, [
+        {
+          exitCode: 0,
+          stdout: JSON.stringify({
+            Status: "running",
+            Health: { Status: "healthy" },
+          }),
+          stderr: "",
+        },
+        {
+          exitCode: 1,
+          stdout: "",
+          stderr: "No such object",
+        },
+      ]),
+    });
+
+    await expect(adapter.status([service, { ...service, name: "minio" }])).resolves.toEqual({
+      runtime: "docker",
+      available: true,
+      services: [
+        {
+          name: "trino",
+          state: "running",
+          healthy: true,
+          message: "health=healthy",
+        },
+        {
+          name: "minio",
+          state: "missing",
+          healthy: false,
+          message: "No such object",
+        },
+      ],
+    });
+    expect(commands.map((command) => command.args)).toEqual([
+      ["inspect", "--format", "{{json .State}}", "athena-local-trino"],
+      ["inspect", "--format", "{{json .State}}", "athena-local-minio"],
+    ]);
+  });
+
   test("parses Docker versions from command output", () => {
     expect(parseDockerVersion("27.5.1\n")).toBe("27.5.1");
     expect(parseDockerVersion("Docker version 27.5.1, build abc123")).toBe(
@@ -188,6 +234,23 @@ function fakeExecutor(
   return {
     run: async (command) => {
       commands.push(command);
+      return result;
+    },
+  };
+}
+
+function sequenceExecutor(
+  commands: CommandSpec[],
+  results: Array<{ readonly exitCode: number; readonly stdout: string; readonly stderr: string }>,
+): ProcessExecutor {
+  const remaining = [...results];
+  return {
+    run: async (command) => {
+      commands.push(command);
+      const result = remaining.shift();
+      if (result === undefined) {
+        throw new Error("Unexpected command.");
+      }
       return result;
     },
   };

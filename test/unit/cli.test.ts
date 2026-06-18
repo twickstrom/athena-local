@@ -142,6 +142,59 @@ describe("CLI runner", () => {
     ]);
   });
 
+  test("renders inspected service status through async CLI", async () => {
+    const runtimeStatus: RuntimeStatus = {
+      runtime: "docker",
+      available: true,
+      services: [
+        {
+          name: "trino",
+          state: "running",
+          healthy: true,
+        },
+      ],
+    };
+    const result = await runCliAsync(["status", "--json", "--runtime", "docker"], {
+      runtimeAdapters: {
+        docker: fakeRuntime(runtimeStatus),
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+    const output = JSON.parse(result.stdout) as {
+      runtimeStatus: RuntimeStatus;
+      serviceStatus: RuntimeStatus["services"];
+    };
+
+    expect(output.runtimeStatus).toEqual(runtimeStatus);
+    expect(output.serviceStatus).toEqual(runtimeStatus.services);
+  });
+
+  test("renders inspected service status as text", async () => {
+    const result = await runCliAsync(["status", "--runtime", "docker"], {
+      runtimeAdapters: {
+        docker: fakeRuntime({
+          runtime: "docker",
+          available: true,
+          services: [
+            {
+              name: "minio",
+              state: "running",
+              healthy: false,
+              message: "health=starting",
+            },
+          ],
+        }),
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("Runtime: docker");
+    expect(result.stdout).toContain(
+      "- minio: running, healthy=false - health=starting",
+    );
+  });
+
   test("fails safely for unsafe S3 prefixes", () => {
     const result = runCli([
       "start",
@@ -350,6 +403,7 @@ function fakeRuntime(status: RuntimeStatus): RuntimeAdapter {
   return {
     kind: status.runtime,
     detect: async () => status,
+    status: async () => status,
     planStart: () => [],
     planStop: () => [],
     planDestroy: () => [],

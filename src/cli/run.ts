@@ -1,7 +1,15 @@
 import { redactConfig, resolveConfig } from "../config/resolve.ts";
+import type { AthenaLocalConfig } from "../config/types.ts";
 import type { ConfigSources } from "../config/types.ts";
 import { packageName, projectVersion } from "../index.ts";
 import { createRuntimePlanSummary } from "../runtime/select.ts";
+import { AppleContainerRuntimeAdapter } from "../runtime/apple-container.ts";
+import { DockerRuntimeAdapter } from "../runtime/docker.ts";
+import type {
+  RuntimeAdapter,
+  RuntimeKind,
+  RuntimeStatus,
+} from "../runtime/types.ts";
 import { commands, parseArgs } from "./args.ts";
 
 export interface CliResult {
@@ -21,6 +29,12 @@ export interface CliEnvironment {
   readonly env?: Record<string, string | undefined>;
   readonly isTty?: boolean;
   readonly configSources?: Omit<ConfigSources, "cli" | "env">;
+  readonly runtimeAdapters?: Partial<Record<RuntimeKind, RuntimeAdapter>>;
+}
+
+export interface DoctorDiagnostics {
+  readonly selectedRuntime?: RuntimeKind;
+  readonly runtimes: readonly RuntimeStatus[];
 }
 
 export function runCli(
@@ -110,6 +124,47 @@ export function runCli(
   return ok(renderTextCommand(parsed.command, resolved.config.containerRuntime));
 }
 
+export async function runCliAsync(
+  args: readonly string[],
+  environment: CliEnvironment = {},
+): Promise<CliResult> {
+  const result = runCli(args, environment);
+  const parsed = parseArgs(args);
+
+  if (
+    result.exitCode !== 0 ||
+    parsed.command !== "doctor" ||
+    parsed.errors.length > 0 ||
+    result.action !== undefined
+  ) {
+    return result;
+  }
+
+  const resolved = resolveConfig({
+    ...environment.configSources,
+    ...(environment.env === undefined ? {} : { env: environment.env }),
+    cli: parsed.config,
+  });
+
+  if (resolved.issues.length > 0) {
+    return result;
+  }
+
+  const diagnostics = await detectRuntimes(resolved.config, environment);
+
+  if (parsed.json) {
+    const output = JSON.parse(result.stdout) as Record<string, unknown>;
+    return ok(`${JSON.stringify({ ...output, diagnostics }, null, 2)}\n`);
+  }
+
+  return ok(
+    [
+      renderTextCommand(parsed.command, resolved.config.containerRuntime).trimEnd(),
+      renderDoctorDiagnostics(diagnostics),
+    ].join("\n"),
+  );
+}
+
 function ok(stdout: string): CliResult {
   return {
     exitCode: 0,
@@ -164,6 +219,66 @@ function renderTextCommand(
     default:
       return `${command}: configuration validation is available; runtime behavior will be added by the runtime adapter milestone.\n`;
   }
+}
+
+async function detectRuntimes(
+  config: AthenaLocalConfig,
+  environment: CliEnvironment,
+): Promise<DoctorDiagnostics> {
+  const adapters = createRuntimeAdapters(config, environment);
+  const runtimes = await Promise.all([
+    adapters["apple-container"].detect(),
+    adapters.docker.detect(),
+  ]);
+  const selectedRuntime = config.containerRuntime ?? selectDetectedRuntime(runtimes);
+
+  return {
+    runtimes,
+    ...(selectedRuntime === undefined ? {} : { selectedRuntime }),
+  };
+}
+
+function createRuntimeAdapters(
+  config: AthenaLocalConfig,
+  environment: CliEnvironment,
+): Record<RuntimeKind, RuntimeAdapter> {
+  return {
+    "apple-container":
+      environment.runtimeAdapters?.["apple-container"] ??
+      new AppleContainerRuntimeAdapter({
+        projectName: config.projectId,
+        networkName: config.projectId,
+      }),
+    docker:
+      environment.runtimeAdapters?.docker ??
+      new DockerRuntimeAdapter({
+        projectName: config.projectId,
+        networkName: config.projectId,
+      }),
+  };
+}
+
+function selectDetectedRuntime(
+  statuses: readonly RuntimeStatus[],
+): RuntimeKind | undefined {
+  const available = statuses.filter((status) => status.available);
+  return available.length === 1 ? available[0]?.runtime : undefined;
+}
+
+function renderDoctorDiagnostics(diagnostics: DoctorDiagnostics): string {
+  const runtimeLines = diagnostics.runtimes.map((status) => {
+    const availability = status.available ? "available" : "unavailable";
+    const version = status.version === undefined ? "" : ` ${status.version}`;
+    const message = status.message === undefined ? "" : ` - ${status.message}`;
+    return `- ${status.runtime}: ${availability}${version}${message}`;
+  });
+
+  return [
+    `Selected runtime: ${diagnostics.selectedRuntime ?? "not selected"}.`,
+    "Detected runtimes:",
+    ...runtimeLines,
+    "",
+  ].join("\n");
 }
 
 function checksFor(command: string): readonly string[] {

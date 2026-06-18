@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 
-import { runCli } from "./cli/run.ts";
+import { runCliAsync } from "./cli/run.ts";
 import { createAthenaLocalHandler } from "./server/bootstrap.ts";
 
-const result = runCli(Bun.argv.slice(2), {
+const result = await runCliAsync(Bun.argv.slice(2), {
   env: Bun.env,
   isTty: process.stdin.isTTY === true && process.stdout.isTTY === true,
 });

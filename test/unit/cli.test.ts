@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { parseArgs } from "../../src/cli/args.ts";
-import { runCli } from "../../src/cli/run.ts";
+import { runCli, runCliAsync } from "../../src/cli/run.ts";
+import type { RuntimeAdapter, RuntimeStatus } from "../../src/runtime/types.ts";
 
 describe("CLI arguments", () => {
   test("parses command options into config overrides", () => {
@@ -111,4 +112,87 @@ describe("CLI runner", () => {
     });
     expect(facadeOnly.stdout).toContain("Starting Athena facade on port 4568.");
   });
+
+  test("renders async JSON doctor diagnostics with detected runtimes", async () => {
+    const result = await runCliAsync(["doctor", "--json"], {
+      runtimeAdapters: {
+        "apple-container": fakeRuntime({
+          runtime: "apple-container",
+          available: false,
+          services: [],
+          message: "container: command not found",
+        }),
+        docker: fakeRuntime({
+          runtime: "docker",
+          available: true,
+          version: "27.5.1",
+          services: [],
+        }),
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+    const output = JSON.parse(result.stdout) as {
+      diagnostics: {
+        selectedRuntime?: string;
+        runtimes: Array<{
+          runtime: string;
+          available: boolean;
+          services: unknown[];
+          version?: string;
+          message?: string;
+        }>;
+      };
+    };
+
+    expect(output.diagnostics.selectedRuntime).toBe("docker");
+    expect(output.diagnostics.runtimes).toEqual([
+      {
+        runtime: "apple-container",
+        available: false,
+        services: [],
+        message: "container: command not found",
+      },
+      {
+        runtime: "docker",
+        available: true,
+        version: "27.5.1",
+        services: [],
+      },
+    ]);
+  });
+
+  test("renders async text doctor diagnostics", async () => {
+    const result = await runCliAsync(["doctor", "--runtime", "apple-container"], {
+      runtimeAdapters: {
+        "apple-container": fakeRuntime({
+          runtime: "apple-container",
+          available: true,
+          version: "0.2.1",
+          services: [],
+        }),
+        docker: fakeRuntime({
+          runtime: "docker",
+          available: true,
+          version: "27.5.1",
+          services: [],
+        }),
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("Selected runtime: apple-container.");
+    expect(result.stdout).toContain("- apple-container: available 0.2.1");
+    expect(result.stdout).toContain("- docker: available 27.5.1");
+  });
 });
+
+function fakeRuntime(status: RuntimeStatus): RuntimeAdapter {
+  return {
+    kind: status.runtime,
+    detect: async () => status,
+    planStart: () => [],
+    planStop: () => [],
+    planDestroy: () => [],
+  };
+}

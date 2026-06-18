@@ -55,6 +55,10 @@ describe("CLI runner", () => {
         awsProfile?: string;
         containerRuntime?: string;
       };
+      runtimePlan: {
+        runtime: string;
+        serviceCount: number;
+      };
       checks: string[];
     };
 
@@ -62,6 +66,10 @@ describe("CLI runner", () => {
     expect(output.command).toBe("doctor");
     expect(output.config.awsProfile).toBe("[redacted]");
     expect(output.config.containerRuntime).toBe("docker");
+    expect(output.runtimePlan).toMatchObject({
+      runtime: "docker",
+      serviceCount: 4,
+    });
     expect(output.checks).toContain("storage-safety");
   });
 

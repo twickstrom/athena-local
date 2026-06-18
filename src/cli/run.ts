@@ -1,6 +1,7 @@
 import { redactConfig, resolveConfig } from "../config/resolve.ts";
 import type { ConfigSources } from "../config/types.ts";
 import { packageName, projectVersion } from "../index.ts";
+import { createRuntimePlanSummary } from "../runtime/select.ts";
 import { commands, parseArgs } from "./args.ts";
 
 export interface CliResult {
@@ -70,12 +71,22 @@ export function runCli(
   }
 
   if (parsed.json) {
+    const runtimePlan =
+      resolved.config.containerRuntime === undefined
+        ? undefined
+        : createRuntimePlanSummary({
+            runtime: resolved.config.containerRuntime,
+            projectName: resolved.config.projectId,
+            networkName: resolved.config.projectId,
+          });
+
     return ok(
       `${JSON.stringify(
         {
           ok: true,
           command: parsed.command,
           config: redactConfig(resolved.config),
+          ...(runtimePlan === undefined ? {} : { runtimePlan }),
           checks: checksFor(parsed.command),
         },
         null,

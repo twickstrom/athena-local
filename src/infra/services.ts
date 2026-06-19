@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // SPDX-FileCopyrightText: 2026 Tim Wickstrom
 
+import { resolve } from "node:path";
 import { createCommandSpec } from "../process/command.ts";
 import type { AthenaLocalConfig } from "../config/types.ts";
 import type { RuntimeServiceDefinition } from "../runtime/types.ts";
@@ -166,7 +167,10 @@ export function createLocalStackServices(
           name: "hive-config",
           source: {
             type: "bind",
-            path: configPaths.hiveConfigDir,
+            // Docker Engine requires an absolute bind source; a relative path is
+            // rejected as an invalid volume name. resolve() leaves an already
+            // absolute path unchanged.
+            path: resolve(configPaths.hiveConfigDir),
           },
           target: "/opt/hive/conf",
           readonly: true,
@@ -196,7 +200,7 @@ export function createLocalStackServices(
           name: "trino-config",
           source: {
             type: "bind",
-            path: configPaths.trinoConfigDir,
+            path: resolve(configPaths.trinoConfigDir),
           },
           target: "/etc/trino",
           readonly: true,

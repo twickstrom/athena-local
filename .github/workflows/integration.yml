@@ -43,20 +43,20 @@ jobs:
         run: |
           nohup bun run src/cli.ts start --runtime docker > /tmp/athena-start.log 2>&1 &
           echo "Waiting for the Athena facade to come up..."
+          up=
           for i in $(seq 1 120); do
-            if curl -fsS -o /dev/null -X POST http://127.0.0.1:4567/ \
-                -H "X-Amz-Target: AmazonAthena.GetQueryExecution" \
-                -H "Content-Type: application/x-amz-json-1.1" \
-                -d '{"QueryExecutionId":"probe"}' 2>/dev/null; then
-              echo "facade responding"; break
-            fi
-            # A 400 from the facade also means it is up (bad request, but routed).
+            # A non-000 HTTP code means the facade is routing (even a 400).
             code=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://127.0.0.1:4567/ \
                 -H "X-Amz-Target: AmazonAthena.GetQueryExecution" \
                 -H "Content-Type: application/x-amz-json-1.1" -d '{}' || true)
-            if [ "$code" != "000" ] && [ -n "$code" ]; then echo "facade up (HTTP $code)"; break; fi
+            if [ "$code" != "000" ] && [ -n "$code" ]; then echo "facade up (HTTP $code)"; up=1; break; fi
             sleep 2
           done
+          if [ -z "$up" ]; then
+            echo "::error::Athena facade never came up — stack boot failed"
+            echo "--- start log ---"; cat /tmp/athena-start.log || true
+            exit 1
+          fi
 
       - name: Show stack status
         run: |
@@ -123,14 +123,20 @@ jobs:
       - name: Start athena-local in external mode (attach to the MinIO)
         run: |
           nohup bun run src/cli.ts start --runtime docker > /tmp/athena-start.log 2>&1 &
+          up=
           for i in $(seq 1 120); do
             code=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://127.0.0.1:4567/ \
               -H "X-Amz-Target: AmazonAthena.GetQueryExecution" \
               -H "Content-Type: application/x-amz-json-1.1" -d '{}' || true)
-            if [ "$code" != "000" ] && [ -n "$code" ]; then echo "facade up (HTTP $code)"; break; fi
+            if [ "$code" != "000" ] && [ -n "$code" ]; then echo "facade up (HTTP $code)"; up=1; break; fi
             sleep 2
           done
           docker ps --format '{{.Names}}\t{{.Status}}'
+          if [ -z "$up" ]; then
+            echo "::error::Athena facade never came up — stack boot failed"
+            echo "--- start log ---"; cat /tmp/athena-start.log || true
+            exit 1
+          fi
 
       - name: Register s3:// and s3a:// external tables and query them
         env:

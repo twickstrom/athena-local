@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Tim Wickstrom
 
 import { describe, expect, test } from "bun:test";
+import { isAbsolute } from "node:path";
 import { createLocalStackServices, localServiceImages } from "../../src/infra/services.ts";
 import { DockerRuntimeAdapter } from "../../src/runtime/docker.ts";
 import { validateServiceDefinition } from "../../src/runtime/types.ts";
@@ -98,5 +99,21 @@ describe("local stack service definitions", () => {
         ],
       },
     ]);
+  });
+
+  test("uses absolute bind sources for config mounts", () => {
+    // Docker Engine (Linux) rejects a relative bind source as an invalid volume
+    // name. The default config paths are relative, so the service definitions
+    // must resolve them to absolute paths.
+    const services = createLocalStackServices();
+    const bindSources = services
+      .flatMap((service) => service.volumes)
+      .map((volume) => volume.source)
+      .filter((source) => source?.type === "bind");
+
+    expect(bindSources.length).toBeGreaterThan(0);
+    for (const source of bindSources) {
+      expect(isAbsolute(source!.path)).toBe(true);
+    }
   });
 });

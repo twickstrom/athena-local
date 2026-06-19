@@ -16,6 +16,21 @@ It runs entirely on the developer's machine and collects no telemetry. It is not
 affiliated with or endorsed by Amazon Web Services; "Athena" and "AWS" are
 trademarks of Amazon.
 
+## Quick start
+
+Prerequisites: Bun ≥ 1.3 and a container runtime (Docker or Apple `container`).
+
+```bash
+bunx athena-local doctor    # check the runtime and host ports
+bunx athena-local start     # boot Postgres + MinIO + Hive + Trino + the facade
+bunx athena-local seed      # optional: a default.athena_local_smoke sample table
+```
+
+`start` serves the facade on `http://localhost:4567` once the stack is healthy
+(`GET /health` returns `{ok:true}`); then point the AWS SDK at it (below). `stop`
+and `destroy` tear it down. `--facade-only` serves just the protocol with no
+containers — queries still need Trino, so it is for protocol/wiring checks only.
+
 ## How an application consumes it
 
 Point the AWS SDK clients at the local stack — no app code changes beyond config:
@@ -32,9 +47,14 @@ const athena = new AthenaClient({
 await athena.send(new StartQueryExecutionCommand({
   QueryString: "SELECT * FROM events LIMIT 10",
   QueryExecutionContext: { Database: "analytics" },     // honored per query
-  ResultConfiguration: { OutputLocation: "s3://athena-local-results/local/" },
+  // OutputLocation is optional — it defaults per backend (see below).
 }));
 ```
+
+`seed` creates a `default.athena_local_smoke` table you can query immediately
+(`Database: "default"`); `analytics`/`events` above stand in for your own
+database and tables — register external tables with `CREATE EXTERNAL TABLE` DDL
+(see attach mode). The default WorkGroup is `primary`.
 
 Results land in object storage; read them with `@aws-sdk/client-s3` pointed at
 MinIO (`http://localhost:9000`, creds `local`/`local-secret`) for the `minio`
@@ -226,7 +246,7 @@ edge case. Document unsupported behavior rather than silently approximating it.
 
 ## Authoritative docs
 
-`README.md` (supported surface, matrix, limitations) · this file (working
-agreements) · `CHANGELOG.md` (shipped) · `CONTRIBUTING.md` (release/secret
-setup). On conflict prefer: the user's latest explicit instruction → `AGENTS.md`
-→ `README.md`.
+`README.md` (supported surface, matrix, limitations) · this file (consumer guide
++ working agreements) · `CHANGELOG.md` (shipped) · `CONTRIBUTING.md`
+(release/secret setup). On conflict prefer: the user's latest explicit
+instruction → `AGENTS.md` → `README.md`.

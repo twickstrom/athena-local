@@ -22,6 +22,7 @@ const forbiddenSourceFiles = [
 
 const requiredPackageFiles = [
   "package/README.md",
+  "package/AGENTS.md",
   "package/LICENSE",
   "package/package.json",
   "package/src/cli.ts",

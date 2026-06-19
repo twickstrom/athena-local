@@ -241,7 +241,7 @@ export class AthenaFacadeService implements AthenaOperationHandlers {
 
   async GetDatabase(input: GetDatabaseInput): Promise<GetDatabaseOutput> {
     const result = await this.#runMetadataQuery(
-      `SELECT schema_name FROM information_schema.schemata WHERE schema_name = '${input.DatabaseName}'`,
+      `SELECT schema_name FROM information_schema.schemata WHERE schema_name = ${quoteSqlLiteral(input.DatabaseName)}`,
     );
     if (result.rows.length === 0) {
       throw new AthenaProtocolError(
@@ -277,7 +277,7 @@ export class AthenaFacadeService implements AthenaOperationHandlers {
   ): Promise<GetTableMetadataOutput> {
     const result = await this.#runMetadataQuery(
       `SELECT column_name, data_type FROM information_schema.columns ` +
-        `WHERE table_schema = '${input.DatabaseName}' AND table_name = '${input.TableName}' ` +
+        `WHERE table_schema = ${quoteSqlLiteral(input.DatabaseName)} AND table_name = ${quoteSqlLiteral(input.TableName)} ` +
         `ORDER BY ordinal_position`,
     );
     if (result.rows.length === 0) {
@@ -305,7 +305,7 @@ export class AthenaFacadeService implements AthenaOperationHandlers {
   ): Promise<ListTableMetadataOutput> {
     const result = await this.#runMetadataQuery(
       `SELECT table_name, column_name, data_type FROM information_schema.columns ` +
-        `WHERE table_schema = '${input.DatabaseName}' ` +
+        `WHERE table_schema = ${quoteSqlLiteral(input.DatabaseName)} ` +
         `ORDER BY table_name, ordinal_position`,
     );
 
@@ -532,6 +532,13 @@ export class AthenaFacadeService implements AthenaOperationHandlers {
     }
     return record;
   }
+}
+
+// Escape a value for use as a SQL string literal. Callers already restrict
+// these fields to validated identifiers (see protocol/validate.ts), but the
+// sink should not depend on that distant guarantee — double any embedded quote.
+function quoteSqlLiteral(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
 }
 
 function removeUndefined<T extends object>(value: T): T {

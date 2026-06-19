@@ -243,6 +243,28 @@ describe("catalog metadata operations", () => {
     harness.close();
   });
 
+  test("escapes single quotes in metadata identifiers at the SQL sink", async () => {
+    // Defense-in-depth: the protocol layer rejects non-identifier names before
+    // they reach here, but the sink must not rely on that — an embedded quote
+    // is doubled, not used to break out of the literal.
+    const trino = new MetadataTrino((sql) => {
+      expect(sql).toContain("table_schema = 'def''ault'");
+      expect(sql).toContain("table_name = 'ev''ents'");
+      expect(sql).not.toContain("'def'ault'");
+      return { columns: [], data: [] };
+    });
+    const harness = createFacadeHarness({ trino });
+    await expect(
+      harness.service.GetTableMetadata({
+        CatalogName: "AwsDataCatalog",
+        DatabaseName: "def'ault",
+        TableName: "ev'ents",
+      }),
+    ).rejects.toThrow();
+    expect(trino.queries).toHaveLength(1);
+    harness.close();
+  });
+
   test("ListTableMetadata groups columns by table and applies the filter", async () => {
     const trino = new MetadataTrino(() => ({
       columns: columnColumns,

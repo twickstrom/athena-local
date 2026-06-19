@@ -10,8 +10,6 @@
   real AWS-JSON protocol and exits non-zero if the statement fails — a handy
   CI/diagnostic primitive.
 
-This project follows semantic versioning.
-
 ## 0.1.2
 
 ### Patch Changes

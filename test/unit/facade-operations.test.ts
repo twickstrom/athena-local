@@ -286,8 +286,8 @@ describe("catalog metadata operations", () => {
 // statements run cleanly to SUCCEEDED through the same facade path.
 describe("external-table registration and partition sync (DDL/CALL)", () => {
   test.each([
-    "CREATE TABLE briefcase_analytics.events (type varchar, dt varchar) WITH (format = 'JSON', external_location = 's3://briefcase-analytics/events/', partitioned_by = ARRAY['dt'])",
-    "CALL system.sync_partition_metadata('briefcase_analytics', 'events', 'FULL')",
+    "CREATE TABLE analytics.events (type varchar, dt varchar) WITH (format = 'JSON', external_location = 's3://analytics/events/', partitioned_by = ARRAY['dt'])",
+    "CALL system.sync_partition_metadata('analytics', 'events', 'FULL')",
   ])("runs %s to SUCCEEDED with no result rows", async (sql) => {
     const trino = new FakeTrino({
       queryId: "ddl-1",
@@ -337,12 +337,12 @@ describe("per-query database/catalog context", () => {
       QueryString: "select * from events",
       QueryExecutionContext: {
         Catalog: "AwsDataCatalog",
-        Database: "briefcase_analytics",
+        Database: "analytics",
       },
     });
     expect(trino.contexts[0]).toEqual({
       catalog: "hive",
-      schema: "briefcase_analytics",
+      schema: "analytics",
     });
     harness.close();
   });

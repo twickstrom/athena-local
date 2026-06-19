@@ -5,9 +5,9 @@ import { describe, expect, test } from "bun:test";
 import { buildAthenaResultSet, formatCell } from "../../src/results/rows.ts";
 
 // Pins the Trino->Athena result mapping to the exact shapes a positional reader
-// (cells[i]?.VarCharValue ?? "") depends on. Golden cases from INTEGRATION.md §4.
+// (cells[i]?.VarCharValue ?? "") depends on.
 describe("Athena result-shape parity", () => {
-  test("maps the deck golden rows exactly (header, null, bigint, json varchar)", () => {
+  test("maps the golden rows exactly (header, null, bigint, json varchar)", () => {
     const result = buildAthenaResultSet({
       columns: [
         { name: "type", type: "varchar" },

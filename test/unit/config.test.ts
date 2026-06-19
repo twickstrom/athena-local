@@ -123,14 +123,14 @@ describe("configuration resolution", () => {
     const resolved = resolveConfig({
       env: {
         ATHENA_LOCAL_STORAGE_BACKEND: "external",
-        ATHENA_LOCAL_S3_BUCKET: "briefcase-analytics",
+        ATHENA_LOCAL_S3_BUCKET: "analytics",
         ATHENA_LOCAL_S3_ENDPOINT: "http://localhost:9000",
       },
     });
 
     expect(resolved.issues).toEqual([]);
     expect(resolved.config.storageBackend).toBe("external");
-    expect(resolved.config.s3Bucket).toBe("briefcase-analytics");
+    expect(resolved.config.s3Bucket).toBe("analytics");
     expect(resolved.config.s3Endpoint).toBe("http://localhost:9000");
   });
 
@@ -153,7 +153,7 @@ describe("configuration resolution", () => {
     const resolved = resolveConfig({
       env: {
         ATHENA_LOCAL_STORAGE_BACKEND: "external",
-        ATHENA_LOCAL_S3_BUCKET: "briefcase-analytics",
+        ATHENA_LOCAL_S3_BUCKET: "analytics",
         ATHENA_LOCAL_S3_ENDPOINT: "http://localhost:9000",
       },
     });
@@ -164,7 +164,7 @@ describe("configuration resolution", () => {
     const resolved = resolveConfig({
       env: {
         ATHENA_LOCAL_STORAGE_BACKEND: "external",
-        ATHENA_LOCAL_S3_BUCKET: "briefcase-analytics",
+        ATHENA_LOCAL_S3_BUCKET: "analytics",
         ATHENA_LOCAL_S3_ENDPOINT: "http://localhost:9000",
         ATHENA_LOCAL_PORT_POSTGRES: "5544",
       },

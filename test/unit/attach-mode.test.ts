@@ -68,7 +68,7 @@ describe("interServiceConfigOptions", () => {
       config({
         ATHENA_LOCAL_CONTAINER_RUNTIME: "apple-container",
         ATHENA_LOCAL_STORAGE_BACKEND: "external",
-        ATHENA_LOCAL_S3_BUCKET: "briefcase-analytics",
+        ATHENA_LOCAL_S3_BUCKET: "analytics",
         ATHENA_LOCAL_S3_ENDPOINT: "http://localhost:9000",
       }),
       "10.0.0.1",
@@ -93,7 +93,7 @@ describe("interServiceConfigOptions", () => {
       config({
         ATHENA_LOCAL_CONTAINER_RUNTIME: "docker",
         ATHENA_LOCAL_STORAGE_BACKEND: "external",
-        ATHENA_LOCAL_S3_BUCKET: "briefcase-analytics",
+        ATHENA_LOCAL_S3_BUCKET: "analytics",
         ATHENA_LOCAL_S3_ENDPOINT: "http://localhost:9000",
       }),
       "host.docker.internal",

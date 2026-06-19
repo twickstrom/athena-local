@@ -1,0 +1,34 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "helpers:pinGitHubActionDigests",
+    ":dependencyDashboard"
+  ],
+  "labels": ["dependencies"],
+  "schedule": ["before 6am on monday"],
+  "lockFileMaintenance": { "enabled": true },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Digest-pinned local stack images in services.ts",
+      "managerFilePatterns": ["/^src/infra/services\\.ts$/"],
+      "matchStrings": [
+        "\"(?<depName>[^\"\\s]+?):(?<currentValue>[^\"@\\s]+)@(?<currentDigest>sha256:[a-f0-9]+)\""
+      ],
+      "datasourceTemplate": "docker"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Group GitHub Actions digest bumps into one PR",
+      "matchManagers": ["github-actions"],
+      "groupName": "github-actions"
+    },
+    {
+      "description": "Keep the AWS SDK floor explicit; surface majors on their own",
+      "matchPackageNames": ["@aws-sdk/client-athena"],
+      "rangeStrategy": "bump"
+    }
+  ]
+}

@@ -342,7 +342,15 @@ describe("CLI runner", () => {
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("runtime started but readiness failed");
     expect(result.stderr).toContain("rollback commands executed: 8");
-    expect(executed).toHaveLength(26);
+    // The failing services' container log tails are surfaced for diagnosis.
+    expect(result.stderr).toContain("logs (last 20 lines)");
+    expect(
+      executed.some(
+        (command) =>
+          command.executable === "docker" && command.args[0] === "logs",
+      ),
+    ).toBe(true);
+    expect(executed).toHaveLength(30);
   });
 
   test("rejects start before mutation when required ports conflict", async () => {

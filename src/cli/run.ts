@@ -18,6 +18,7 @@ import {
 import { packageName, projectVersion } from "../index.ts";
 import {
   createBunProcessExecutor,
+  createCommandSpec,
   redactCommand,
   type ProcessExecutor,
 } from "../process/command.ts";
@@ -447,24 +448,41 @@ async function executeRuntimeCommand(
         environment.readinessOptions,
       );
       if (!readiness.ready) {
+        const failedServices = readiness.services.filter(
+          (service) => !service.ready,
+        );
+        // Capture each failed service's container log tail BEFORE rollback
+        // removes the containers — that tail is what turns a "not ready"
+        // timeout into an actionable diagnosis (e.g. a Trino config error).
+        const logTails = await Promise.all(
+          failedServices.map((service) =>
+            collectServiceLogTail(
+              executor,
+              config.containerRuntime!,
+              config.projectId,
+              service.service,
+            ),
+          ),
+        );
         const rollbackLifecycle = await executeRuntimePlan(
           {
             commands: rollback,
           },
           executor,
         );
+        const logSection = logTails.filter((tail) => tail.length > 0).join("\n\n");
         return {
           exitCode: 1,
           stdout: "",
           stderr:
             `${command}: runtime started but readiness failed.\n` +
-            readiness.services
-              .filter((service) => !service.ready)
+            failedServices
               .map(
                 (service) =>
                   `- ${service.service}: ${service.message ?? "not ready"}`,
               )
               .join("\n") +
+            (logSection.length > 0 ? `\n\n${logSection}` : "") +
             `\nrollback commands executed: ${rollbackLifecycle.executed.length}\n`,
         };
       }
@@ -592,6 +610,33 @@ function interServiceConfigOptions(
     };
   }
   return {};
+}
+
+// Fetch the last lines of a service's container log so a readiness failure can
+// show *why* (e.g. a bad Trino config), not just that it timed out.
+async function collectServiceLogTail(
+  executor: ProcessExecutor,
+  runtime: ContainerRuntime,
+  projectId: string,
+  serviceName: string,
+  lines = 20,
+): Promise<string> {
+  const executable = runtime === "docker" ? "docker" : "container";
+  const containerName = `${projectId}-${serviceName}`;
+  const result = await executor.run(
+    createCommandSpec(executable, ["logs", containerName], {
+      allowFailure: true,
+    }),
+  );
+  const tail = `${result.stdout}\n${result.stderr}`
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter((line) => line.length > 0)
+    .slice(-lines)
+    .join("\n");
+  return tail.length === 0
+    ? ""
+    : `--- ${serviceName} logs (last ${lines} lines) ---\n${tail}`;
 }
 
 function createRuntimeAdapters(

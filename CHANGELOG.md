@@ -2,6 +2,22 @@
 
 This project follows semantic versioning.
 
+## 0.1.1
+
+### Patch Changes
+
+- [`9e85cc7`](https://github.com/twickstrom/athena-local/commit/9e85cc7dec044dc79500376c3882189a9714c561) Thanks [@twickstrom](https://github.com/twickstrom)! - Fix stack boot on Docker Engine (Linux): the Hive and Trino config volumes used
+  a relative bind-mount source, which Docker Engine rejects as an invalid volume
+  name (it only worked on macOS runtimes that tolerate relative bind paths). The
+  service definitions now resolve config bind sources to absolute paths.
+
+- [`3b02f5f`](https://github.com/twickstrom/athena-local/commit/3b02f5fdbf6615e292d233150370cb05da937773) Thanks [@twickstrom](https://github.com/twickstrom)! - Gate Trino readiness on it being able to serve queries. The readiness probe
+  accepted any 200 from `/v1/info`, but Trino returns 200 with `"starting":true`
+  during warmup, so the stack reported ready before the coordinator could run
+  queries (seed and live queries failed with "Trino server is still
+  initializing"). The HTTP readiness check can now require a response-body
+  substring, and Trino waits for `"starting":false` with a longer warmup timeout.
+
 ## 0.1.0 - 2026-06-19
 
 Initial public release.

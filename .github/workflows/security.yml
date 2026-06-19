@@ -25,10 +25,12 @@ jobs:
         env:
           SECRET_PATTERN: AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|aws_access_key_id|aws_secret_access_key|github_pat_|ghp_
         run: |
+          # --exclude matches the base name only (GNU grep), so exclude this
+          # file by name — otherwise the SECRET_PATTERN literal below self-matches.
           ! grep -RInE "$SECRET_PATTERN" . \
             --exclude-dir=.git \
             --exclude-dir=node_modules \
-            --exclude=.github/workflows/security.yml
+            --exclude=security.yml
 
   dependency-review:
     name: Dependency review

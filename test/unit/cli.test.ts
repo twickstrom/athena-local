@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Tim Wickstrom
 
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "../../src/cli/args.ts";
@@ -213,6 +213,8 @@ describe("CLI runner", () => {
         ATHENA_LOCAL_STORAGE_BACKEND: "external",
         ATHENA_LOCAL_S3_BUCKET: "analytics",
         ATHENA_LOCAL_S3_ENDPOINT: "http://localhost:9000",
+        ATHENA_LOCAL_S3_ACCESS_KEY: "external-access-id",
+        ATHENA_LOCAL_S3_SECRET_KEY: "super-secret-do-not-persist",
       },
       hostChecks: fakeHostChecks(),
       readinessProbes: fakeReadinessProbes(true),
@@ -221,6 +223,12 @@ describe("CLI runner", () => {
       runningConfigRoot: root,
     });
     expect(started.exitCode).toBe(0);
+
+    // The on-disk snapshot must never contain external credentials.
+    const snapshot = readFileSync(join(root, "running.json"), "utf8");
+    expect(snapshot).not.toContain("super-secret-do-not-persist");
+    expect(snapshot).not.toContain("external-access-id");
+    expect(snapshot).toContain("\"storageBackend\": \"external\"");
 
     // status, run WITHOUT the external env, still reports external from the snapshot.
     const status = await runCliAsync(["status", "--json", "--runtime", "docker"], {

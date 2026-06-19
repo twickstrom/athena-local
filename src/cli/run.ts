@@ -329,6 +329,33 @@ function runningConfigPath(root: string): string {
   return `${root.replace(/\/+$/, "")}/${RUNNING_CONFIG_FILE}`;
 }
 
+// An explicit allowlist of non-secret fields for the on-disk snapshot. Built by
+// naming safe fields (never spreading the whole config) so a credential can
+// never reach disk, even if AthenaLocalConfig later grows a secret field.
+// External S3 credentials are read from env at bootstrap and are deliberately
+// not part of AthenaLocalConfig — they must never be persisted here.
+function runningConfigSnapshot(
+  config: AthenaLocalConfig,
+): Record<string, unknown> {
+  return {
+    storageBackend: config.storageBackend,
+    executionMode: config.executionMode,
+    ...(config.containerRuntime === undefined
+      ? {}
+      : { containerRuntime: config.containerRuntime }),
+    awsRegion: config.awsRegion,
+    ...(config.awsProfile === undefined ? {} : { awsProfile: "[redacted]" }),
+    ...(config.s3Bucket === undefined ? {} : { s3Bucket: config.s3Bucket }),
+    ...(config.s3Prefix === undefined ? {} : { s3Prefix: config.s3Prefix }),
+    ...(config.s3Endpoint === undefined ? {} : { s3Endpoint: config.s3Endpoint }),
+    ports: config.ports,
+    projectId: config.projectId,
+    ...(config.runId === undefined ? {} : { runId: config.runId }),
+    logLevel: config.logLevel,
+    outputMode: config.outputMode,
+  };
+}
+
 // Persist the effective config of a started stack so a later `status` (run
 // without the same env) can report what is actually running. Best-effort: a
 // start must never fail because the snapshot could not be written.
@@ -340,7 +367,7 @@ async function writeRunningConfig(
     await Bun.write(
       runningConfigPath(root),
       `${JSON.stringify(
-        { config: redactConfig(config), savedAt: new Date().toISOString() },
+        { config: runningConfigSnapshot(config), savedAt: new Date().toISOString() },
         null,
         2,
       )}\n`,

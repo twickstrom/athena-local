@@ -11,8 +11,10 @@ This project follows semantic versioning.
   - `--version` now reports the real package version (read from package.json)
     instead of `0.0.0`.
   - `status --json` reports the configuration the running stack was actually
-    started with (persisted at start) rather than the ambient env defaults, with a
-    `configSource` of `running` or `resolved`.
+    started with (persisted at start, paired with live per-service health)
+    rather than the ambient env defaults, with a `configSource` of `running` or
+    `resolved`. The on-disk snapshot is an explicit non-secret allowlist —
+    credentials are never written to disk.
   - A failed `start` (e.g. a required host port in use) exits non-zero, so
     automation can detect it (covered by a regression test).
 

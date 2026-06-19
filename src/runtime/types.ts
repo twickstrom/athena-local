@@ -49,6 +49,10 @@ export type RuntimeReadinessCheck =
       readonly type: "http";
       readonly url: string;
       readonly timeoutMs: number;
+      // When set, a 2xx is not enough: the response body must include this
+      // string. Trino's /v1/info returns 200 with "starting":true during
+      // warmup, before it can serve queries.
+      readonly expectBodyIncludes?: string;
     }
   | {
       readonly type: "tcp";

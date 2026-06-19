@@ -65,7 +65,8 @@ describe("local stack service definitions", () => {
     ).toEqual({
       type: "http",
       url: "http://127.0.0.1:18080/v1/info",
-      timeoutMs: 60_000,
+      expectBodyIncludes: '"starting":false',
+      timeoutMs: 180_000,
     });
   });
 

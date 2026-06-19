@@ -3,7 +3,10 @@
 
 import { describe, expect, test } from "bun:test";
 import type { ReadinessProbes } from "../../src/runtime/readiness.ts";
-import { waitForServicesReady } from "../../src/runtime/readiness.ts";
+import {
+  createDefaultReadinessProbes,
+  waitForServicesReady,
+} from "../../src/runtime/readiness.ts";
 import type { RuntimeServiceDefinition } from "../../src/runtime/types.ts";
 
 describe("runtime readiness", () => {
@@ -18,6 +21,27 @@ describe("runtime readiness", () => {
       ready: true,
       services: [{ service: "trino", ready: true }],
     });
+  });
+
+  test("http probe requires the expected body substring when set", async () => {
+    const server = Bun.serve({
+      port: 0,
+      fetch: () => new Response('{"coordinator":true,"starting":false}'),
+    });
+    const probes = createDefaultReadinessProbes({
+      run: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
+    });
+    const url = `http://127.0.0.1:${server.port}/v1/info`;
+    try {
+      // 200 alone is ready when no body match is required.
+      expect(await probes.http(url, 1000)).toBe(true);
+      // The matching substring is present.
+      expect(await probes.http(url, 1000, '"starting":false')).toBe(true);
+      // A still-starting server (body says starting:true) is not ready.
+      expect(await probes.http(url, 1000, '"starting":true')).toBe(false);
+    } finally {
+      server.stop(true);
+    }
   });
 
   test("reports timed-out services", async () => {

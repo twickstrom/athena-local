@@ -210,7 +210,10 @@ export function createLocalStackServices(
       readiness: {
         type: "http",
         url: `http://127.0.0.1:${ports.trino}/v1/info`,
-        timeoutMs: 60_000,
+        // /v1/info returns 200 with "starting":true during warmup; require the
+        // coordinator to finish starting so it can actually serve queries.
+        expectBodyIncludes: '"starting":false',
+        timeoutMs: 180_000,
       },
     },
   ];

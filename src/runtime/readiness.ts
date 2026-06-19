@@ -17,7 +17,11 @@ export interface ReadinessResult {
 }
 
 export interface ReadinessProbes {
-  readonly http: (url: string, timeoutMs: number) => Promise<boolean>;
+  readonly http: (
+    url: string,
+    timeoutMs: number,
+    expectBodyIncludes?: string,
+  ) => Promise<boolean>;
   readonly tcp: (host: string, port: number, timeoutMs: number) => Promise<boolean>;
   readonly command: (
     check: Extract<RuntimeReadinessCheck, { readonly type: "command" }>,
@@ -48,11 +52,18 @@ export function createDefaultReadinessProbes(
   executor: ProcessExecutor,
 ): ReadinessProbes {
   return {
-    http: async (url, timeoutMs) => {
+    http: async (url, timeoutMs, expectBodyIncludes) => {
       const response = await fetch(url, {
         signal: AbortSignal.timeout(timeoutMs),
       });
-      return response.ok;
+      if (!response.ok) {
+        return false;
+      }
+      if (expectBodyIncludes === undefined) {
+        return true;
+      }
+      const body = await response.text();
+      return body.includes(expectBodyIncludes);
     },
     tcp: (host, port, timeoutMs) => checkTcp(host, port, timeoutMs),
     command: async (check) => {
@@ -101,7 +112,7 @@ function runReadinessCheck(
 ): Promise<boolean> {
   switch (check.type) {
     case "http":
-      return probes.http(check.url, check.timeoutMs);
+      return probes.http(check.url, check.timeoutMs, check.expectBodyIncludes);
     case "tcp":
       return probes.tcp(check.host, check.port, check.timeoutMs);
     case "command":

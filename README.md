@@ -140,6 +140,8 @@ Then point your own application at the same endpoints and run it unchanged — s
 
 Every operation in the [support matrix](#aws-sdk-athena-api-support-matrix) is implemented and tested against the real AWS SDK. Where behavior is approximate or intentionally unsupported, it is **documented rather than silently faked**. Changes are recorded in [CHANGELOG.md](CHANGELOG.md).
 
+**SDK support window:** the protocol and end-to-end suites are run weekly against `@aws-sdk/client-athena` from the declared floor (`3.1071.0`) through `latest`, so SDK drift is caught before it reaches you. See the SDK Compatibility workflow.
+
 ## AWS SDK Athena API Support Matrix
 
 The `@aws-sdk/client-athena` client exposes ~70 operations. Athena Local implements the ones an application's data-access code calls at runtime — and rejects the rest with a structured `InvalidRequestException` (`Unsupported Athena operation: <name>`) so code fails loudly instead of trusting a fake.

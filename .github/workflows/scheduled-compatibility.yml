@@ -1,0 +1,53 @@
+name: SDK Compatibility
+
+# Proactively catches AWS SDK protocol/serialization drift before users do, by
+# running the SDK-exercising suites (protocol + e2e, which use the real
+# @aws-sdk/client-athena against the in-process facade) against a matrix of SDK
+# versions on a weekly schedule. A red run here means a future SDK release would
+# break the documented "tested against SDK X-Y" support window.
+
+on:
+  schedule:
+    # Mondays 07:00 UTC.
+    - cron: "0 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sdk-matrix:
+    name: "@aws-sdk/client-athena ${{ matrix.sdk }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        # Declared floor, current latest. Add "next" once a beta dist-tag is
+        # published for early warning of upcoming protocol changes.
+        sdk:
+          - "3.1071.0"
+          - "latest"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Pin the matrix SDK version
+        run: bun add --dev "@aws-sdk/client-athena@${{ matrix.sdk }}"
+
+      - name: Report resolved version
+        run: bun pm ls 2>/dev/null | grep "@aws-sdk/client-athena" || true
+
+      - name: Typecheck against this SDK
+        run: bun run typecheck
+
+      - name: Protocol + e2e (real SDK serialization, offline)
+        run: |
+          bun run test:protocol
+          bun run test:e2e

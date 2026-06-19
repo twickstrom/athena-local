@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.4
+
+### Patch Changes
+
+- [`d405344`](https://github.com/twickstrom/athena-local/commit/d4053442f32f9df54a26bd4c179d9fdeb096be6e) Thanks [@twickstrom](https://github.com/twickstrom)! - Reuse a leftover named volume instead of failing the start. Apple `container
+volume create` errors on an existing volume name (Docker's is idempotent), so a
+  data volume that survived a `stop` made the next `start` fail and roll back on
+  Apple container — requiring a manual cleanup. `volume create` is now
+  allow-failure in both runtime adapters; a genuinely missing volume still surfaces
+  at `container create`.
+
 ## 0.1.3
 
 ### Patch Changes

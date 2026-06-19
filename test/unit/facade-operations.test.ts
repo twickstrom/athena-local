@@ -280,3 +280,37 @@ describe("catalog metadata operations", () => {
     harness.close();
   });
 });
+
+// In Athena you register an external table and repair partitions via
+// StartQueryExecution DDL/CALL — there is no separate API. Verify those zero-row
+// statements run cleanly to SUCCEEDED through the same facade path.
+describe("external-table registration and partition sync (DDL/CALL)", () => {
+  test.each([
+    "CREATE TABLE briefcase_analytics.events (type varchar, dt varchar) WITH (format = 'JSON', external_location = 's3://briefcase-analytics/events/', partitioned_by = ARRAY['dt'])",
+    "CALL system.sync_partition_metadata('briefcase_analytics', 'events', 'FULL')",
+  ])("runs %s to SUCCEEDED with no result rows", async (sql) => {
+    const trino = new FakeTrino({
+      queryId: "ddl-1",
+      // A DDL/CALL statement returns no columns and no rows.
+      page: { id: "ddl-1", stats: { state: "FINISHED" } },
+    });
+    const harness = createFacadeHarness({ trino });
+
+    const started = await harness.service.StartQueryExecution({
+      QueryString: sql,
+    });
+    expect(trino.submissions).toEqual([sql]);
+    expect(harness.repository.findById(started.QueryExecutionId!)?.state).toBe(
+      "SUCCEEDED",
+    );
+
+    const execution = harness.service.GetQueryExecution({
+      QueryExecutionId: started.QueryExecutionId!,
+    });
+    expect(
+      (execution.QueryExecution as { Status: { State: string } }).Status.State,
+    ).toBe("SUCCEEDED");
+
+    harness.close();
+  });
+});

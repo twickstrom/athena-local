@@ -50,6 +50,7 @@
     "test:aws": "bun test test/aws",
     "test:package": "bun run scripts/package-smoke.ts",
     "test:release": "bun run typecheck && bun run check:headers && bun test && bun run test:package",
+    "prepublishOnly": "bun run test:release",
     "infra:up": "bun run src/cli.ts start",
     "infra:down": "bun run src/cli.ts stop",
     "infra:reset": "bun run src/cli.ts reset",

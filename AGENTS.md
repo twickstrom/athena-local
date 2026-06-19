@@ -51,6 +51,10 @@ Key compatibility facts a consuming agent should know:
   Athena (e.g. `CREATE EXTERNAL TABLE … LOCATION 's3://…'`,
   `CALL system.sync_partition_metadata(...)`). Both `s3://` and `s3a://`
   locations work.
+- Results write to the configured results bucket. A per-query
+  `ResultConfiguration.OutputLocation` is honored when it targets that bucket; a
+  different bucket is rejected by a single-bucket safety guard (set
+  `ATHENA_OUTPUT_LOCATION` / `ATHENA_LOCAL_S3_BUCKET` to change it).
 - Result shapes match Athena: a header row first, `NULL` as an empty `Datum`
   (no `VarCharValue` key), `bigint` as a decimal string, JSON as verbatim
   varchar. Don't break these — a `test/unit/result-shape-parity.test.ts` golden
@@ -103,6 +107,13 @@ unimplemented operation is out of scope.
   is rewritten to the container-reachable gateway (logged, scoped strictly to
   localhost so real hostnames pass through). Credentials come from
   `ATHENA_LOCAL_S3_ACCESS_KEY`/`_SECRET_KEY` or the AWS credential chain.
+
+For the `s3` and `external` backends (no bundled MinIO), query **results**
+default to a scoped prefix in the attached store —
+`s3://<ATHENA_LOCAL_S3_BUCKET>/[<ATHENA_LOCAL_S3_PREFIX>/]athena-local-results/`.
+Override with `ATHENA_OUTPUT_LOCATION` or a per-query `OutputLocation` that
+targets that same bucket. The bundled-MinIO ports (9000/9001) are neither bound
+nor prechecked in these modes, so the store you attach to may sit on 9000.
 
 ## Configuration reference
 

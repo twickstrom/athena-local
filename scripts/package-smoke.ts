@@ -97,6 +97,23 @@ const packageFiles = listed.stdout
   .map((line) => line.trim())
   .filter((line) => line.length > 0);
 
+// Budget the tarball so a stray directory or large file can't silently bloat
+// the package (we ship raw src/). Generous headroom over the current ~62KB/53
+// files; raise deliberately if the package legitimately grows.
+const MAX_TARBALL_BYTES = 250 * 1024;
+const MAX_TARBALL_FILES = 120;
+const tarballBytes = Bun.file(tarball).size;
+if (tarballBytes > MAX_TARBALL_BYTES) {
+  fail(
+    `Package tarball is ${Math.round(tarballBytes / 1024)}KB, over the ${MAX_TARBALL_BYTES / 1024}KB budget — check for stray files.`,
+  );
+}
+if (packageFiles.length > MAX_TARBALL_FILES) {
+  fail(
+    `Package tarball has ${packageFiles.length} entries, over the ${MAX_TARBALL_FILES} budget — check for a stray directory.`,
+  );
+}
+
 for (const path of requiredPackageFiles) {
   if (!packageFiles.includes(path)) {
     fail(`Package tarball is missing required file: ${path}`);

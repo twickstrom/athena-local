@@ -78,8 +78,9 @@ describe("interServiceConfigOptions", () => {
       },
     );
     expect(options).toEqual({
+      // External mode auto-defaults the catalog Postgres off host 5432.
       postgresHost: "10.0.0.1",
-      postgresPort: 5432,
+      postgresPort: 5433,
       hiveMetastoreUri: "thrift://10.0.0.1:9083",
       minioEndpoint: "http://10.0.0.1:9000",
       minioAccessKey: "minioadmin",

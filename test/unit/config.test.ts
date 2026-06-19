@@ -148,4 +148,31 @@ describe("configuration resolution", () => {
       message: "External storage requires ATHENA_LOCAL_S3_ENDPOINT.",
     });
   });
+
+  test("external mode defaults the catalog Postgres off host 5432", () => {
+    const resolved = resolveConfig({
+      env: {
+        ATHENA_LOCAL_STORAGE_BACKEND: "external",
+        ATHENA_LOCAL_S3_BUCKET: "briefcase-analytics",
+        ATHENA_LOCAL_S3_ENDPOINT: "http://localhost:9000",
+      },
+    });
+    expect(resolved.config.ports.postgres).toBe(5433);
+  });
+
+  test("an explicit Postgres port wins over the external default", () => {
+    const resolved = resolveConfig({
+      env: {
+        ATHENA_LOCAL_STORAGE_BACKEND: "external",
+        ATHENA_LOCAL_S3_BUCKET: "briefcase-analytics",
+        ATHENA_LOCAL_S3_ENDPOINT: "http://localhost:9000",
+        ATHENA_LOCAL_PORT_POSTGRES: "5544",
+      },
+    });
+    expect(resolved.config.ports.postgres).toBe(5544);
+  });
+
+  test("the minio backend keeps Postgres on 5432", () => {
+    expect(resolveConfig({}).config.ports.postgres).toBe(5432);
+  });
 });

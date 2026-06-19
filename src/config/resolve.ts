@@ -41,10 +41,37 @@ export function resolveConfig(sources: ConfigSources = {}): ResolvedConfig {
     sources.cli,
   );
 
-  const config = coerceConfig(merged, issues);
+  let config = coerceConfig(merged, issues);
+  // In external (attach) mode, default the catalog Postgres off host 5432 so it
+  // never collides with the consumer's own database — unless a port was set
+  // explicitly. Gateway routing needs it published, so 5433 (not "unpublished").
+  if (
+    config.storageBackend === "external" &&
+    !postgresPortProvided(sources)
+  ) {
+    config = { ...config, ports: { ...config.ports, postgres: 5433 } };
+  }
   validateConfig(config, issues);
 
   return { config, issues };
+}
+
+function postgresPortProvided(sources: ConfigSources): boolean {
+  if (sources.env?.ATHENA_LOCAL_PORT_POSTGRES !== undefined) {
+    return true;
+  }
+  return [sources.cli, sources.localConfig, sources.projectConfig].some(
+    (partial) => portRecordHasPostgres(partial?.ports),
+  );
+}
+
+function portRecordHasPostgres(ports: unknown): boolean {
+  return (
+    typeof ports === "object" &&
+    ports !== null &&
+    !Array.isArray(ports) &&
+    (ports as Record<string, unknown>).postgres !== undefined
+  );
 }
 
 export function configFromEnv(

@@ -80,6 +80,9 @@ Key compatibility facts a consuming agent should know:
   varchar. Don't break these — a `test/unit/result-shape-parity.test.ts` golden
   test pins them.
 - Tested against `@aws-sdk/client-athena` **3.1071.0 → latest** (weekly matrix).
+- No credentials are written to disk. The running-config snapshot under
+  `.athena-local/` (gitignored) is an explicit non-secret allowlist; external S3
+  keys are read from env at boot and never persisted.
 
 ## Supported Athena operations
 
@@ -123,7 +126,8 @@ unimplemented operation is out of scope.
 - `external`: attach to any S3-compatible store `athena-local` does not own.
   Requires `ATHENA_LOCAL_S3_BUCKET` + `ATHENA_LOCAL_S3_ENDPOINT`. The catalog
   Postgres auto-defaults to host **5433** (avoids colliding with a developer's
-  own 5432) unless a port is set explicitly. A `localhost`/`127.0.0.1` endpoint
+  own 5432) unless a port is set explicitly — if you already use 5433, override
+  with `ATHENA_LOCAL_PORT_POSTGRES`. A `localhost`/`127.0.0.1` endpoint
   is rewritten to the container-reachable gateway (logged, scoped strictly to
   localhost so real hostnames pass through). Credentials come from
   `ATHENA_LOCAL_S3_ACCESS_KEY`/`_SECRET_KEY` or the AWS credential chain.
@@ -134,6 +138,69 @@ default to a scoped prefix in the attached store —
 Override with `ATHENA_OUTPUT_LOCATION` or a per-query `OutputLocation` that
 targets that same bucket. The bundled-MinIO ports (9000/9001) are neither bound
 nor prechecked in these modes, so the store you attach to may sit on 9000.
+
+## Recipe: attach to an existing S3 / MinIO store
+
+The most common non-default path — point `athena-local` at a store you already
+run, register your data as an external table, and query it:
+
+```bash
+# 1. Attach: backend + bucket + endpoint + creds for the store (here on :9000).
+export ATHENA_LOCAL_STORAGE_BACKEND=external
+export ATHENA_LOCAL_S3_BUCKET=analytics
+export ATHENA_LOCAL_S3_ENDPOINT=http://localhost:9000
+export ATHENA_LOCAL_S3_ACCESS_KEY=... ATHENA_LOCAL_S3_SECRET_KEY=...
+bunx athena-local start   # blocks until healthy; results default to
+                          # s3://analytics/athena-local-results/
+```
+
+```ts
+// 2. Through the real AthenaClient — register + query, all via StartQueryExecution:
+//   CREATE EXTERNAL TABLE events (id bigint, label varchar)
+//     PARTITIONED BY (dt varchar) LOCATION 's3://analytics/events/';  -- s3:// or s3a://
+//   CALL system.sync_partition_metadata('default', 'events', 'FULL');
+//   SELECT * FROM events WHERE dt = '2026-06-19';
+```
+
+Read results from the same attached store with `@aws-sdk/client-s3` (endpoint
+`http://localhost:9000`); set `ATHENA_OUTPUT_LOCATION` if you don't want results
+in the data bucket.
+
+## Lifecycle, readiness & inspection
+
+- `start` boots the stack and **blocks until every service is healthy**, then
+  serves the facade; it **exits non-zero** if boot or readiness fails (safe to
+  gate CI on). `GET http://localhost:4567/health` → `{"ok":true}` once up.
+- `stop` stops the containers but **keeps volumes** (data survives; resume with
+  `start`). `reset` **destroys and recreates** (wipes volumes — fresh stack).
+  `destroy` removes containers, volumes, and the network (full teardown). In CI,
+  use `destroy` (clean) or `reset` (fresh) between runs; `stop` preserves data.
+- `status --json` reports the config the stack was **started with** (from the
+  snapshot, `configSource:"running"`) alongside **live** per-service health —
+  paired, so a lingering snapshot after an unclean exit still shows truthful
+  health:
+
+```jsonc
+{
+  "config": { "storageBackend": "external", "ports": { "athena": 4567 } },
+  "configSource": "running",          // "resolved" when nothing is running
+  "runningSince": "2026-06-19T00:00:00.000Z", // present only when running
+  "serviceStatus": [
+    { "name": "trino", "state": "running", "healthy": true }
+  ],
+  "runtimeStatus": { "runtime": "docker", "available": true, "services": [] }
+}
+```
+
+## Troubleshooting (error → cause)
+
+| Error (substring) | Likely cause | Fix |
+|---|---|---|
+| `The specified bucket does not exist` | Results location points at a bucket the store doesn't have (e.g. the bundled-MinIO results bucket while in external mode) | Set `ATHENA_OUTPUT_LOCATION` / `ATHENA_LOCAL_S3_BUCKET` to a bucket in the attached store |
+| `Storage operation targets bucket … writes results to …` | A per-query `OutputLocation` targets a different bucket than the configured one | Use the configured bucket, or change `ATHENA_LOCAL_S3_BUCKET` / `ATHENA_OUTPUT_LOCATION` |
+| `Trino server is still initializing` | Queried before the stack was ready | Wait for `start` to return, or poll `GET /health` for `{ok:true}` |
+| `InvalidRequestException` on an operation | The operation is outside the supported subset (by design) | Use a supported operation (see the list above) |
+| `required host ports are unavailable` | A needed host port is already in use | Free it or remap via `ATHENA_LOCAL_PORT_*` |
 
 ## Configuration reference
 

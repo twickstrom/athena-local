@@ -1,8 +1,14 @@
 # Athena Local
 
+[![CI](https://github.com/twickstrom/athena-local/actions/workflows/ci.yml/badge.svg)](https://github.com/twickstrom/athena-local/actions/workflows/ci.yml)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
+[![Tested against @aws-sdk/client-athena](https://img.shields.io/badge/tested%20against-%40aws--sdk%2Fclient--athena%203.1071%2B%20%E2%86%92%20latest-orange.svg)](#aws-sdk-athena-api-support-matrix)
+
 **Run your real AWS Athena code path on your laptop — no AWS account in the loop.**
 
 Athena Local is an Athena-compatible API server backed by [Trino](https://trino.io). Your application keeps using the real AWS SDK `AthenaClient` and `S3Client`; the only things that change between local and production are the endpoint, credentials, and region. No local-only code paths, no hand-written fakes, no `if (isLocal)` branches in your data layer.
+
+Athena Local runs entirely on your machine and **collects no telemetry** — it phones home to nothing.
 
 ```ts
 // The exact client construction your tests and production share.

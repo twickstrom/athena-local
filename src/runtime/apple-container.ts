@@ -95,7 +95,13 @@ export class AppleContainerRuntimeAdapter implements RuntimeAdapter {
         ),
         ...service.volumes
           .filter((volume) => volume.source?.type !== "bind")
-          .map((volume) => container("volume", "create", this.#volumeName(volume.name))),
+          // Tolerate a leftover volume from a prior run: Apple `container volume
+          // create` errors on an existing name (Docker's is idempotent), so a
+          // named data volume that survived a stop would otherwise fail the
+          // start. A genuinely absent volume still surfaces at `container create`.
+          .map((volume) =>
+            containerAllowFailure("volume", "create", this.#volumeName(volume.name)),
+          ),
         ...(service.initTasks ?? []).map((task) => this.#runInitTask(task)),
         this.#createContainer(service),
         container("start", this.#containerName(service.name)),

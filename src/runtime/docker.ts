@@ -73,7 +73,12 @@ export class DockerRuntimeAdapter implements RuntimeAdapter {
         ...(service.initTasks ?? []).map((task) => docker("pull", task.image)),
         ...service.volumes
           .filter((volume) => volume.source?.type !== "bind")
-          .map((volume) => docker("volume", "create", this.#volumePrefix(volume.name))),
+          // Idempotent: reuse a leftover named volume from a prior run rather
+          // than failing the start (parity with the Apple container adapter,
+          // where `volume create` is not idempotent and would otherwise error).
+          .map((volume) =>
+            dockerAllowFailure("volume", "create", this.#volumePrefix(volume.name)),
+          ),
         ...(service.initTasks ?? []).map((task) => this.#runInitTask(task)),
         this.#createContainer(service),
         docker("start", this.#containerName(service.name)),

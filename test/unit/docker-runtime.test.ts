@@ -67,6 +67,7 @@ describe("Docker runtime adapter command generation", () => {
       {
         executable: "docker",
         args: ["volume", "create", "athena-local-trino-data"],
+        allowFailure: true,
       },
       {
         executable: "docker",

@@ -41,6 +41,21 @@ const service: RuntimeServiceDefinition = {
 };
 
 describe("Apple container runtime adapter command generation", () => {
+  test("makes volume create allow-failure so a leftover volume is reused", () => {
+    const adapter = new AppleContainerRuntimeAdapter({
+      projectName: "athena-local",
+      networkName: "athena-local",
+    });
+    const volumeCreates = adapter
+      .planStart([service])
+      .filter((command) => command.args[0] === "volume" && command.args[1] === "create");
+
+    expect(volumeCreates.length).toBeGreaterThan(0);
+    for (const command of volumeCreates) {
+      expect(command.allowFailure).toBe(true);
+    }
+  });
+
   test("plans start commands from typed service definitions", () => {
     const adapter = new AppleContainerRuntimeAdapter({
       projectName: "athena-local",
@@ -64,6 +79,7 @@ describe("Apple container runtime adapter command generation", () => {
       {
         executable: "container",
         args: ["volume", "create", "athena-local-minio-data"],
+        allowFailure: true,
       },
       {
         executable: "container",

@@ -264,9 +264,11 @@ Precedence (both for tool config and runtime selection): **CLI flags → environ
 | Variable | Purpose |
 | --- | --- |
 | `ATHENA_LOCAL_CONTAINER_RUNTIME` | `apple-container` or `docker` |
-| `ATHENA_LOCAL_STORAGE_BACKEND` | `minio` or `s3` |
-| `ATHENA_LOCAL_S3_BUCKET` | Required for the AWS S3 backend |
-| `ATHENA_LOCAL_S3_PREFIX` | Required scoped development prefix for the AWS S3 backend |
+| `ATHENA_LOCAL_STORAGE_BACKEND` | `minio` (default), `s3`, or `external` |
+| `ATHENA_LOCAL_S3_BUCKET` | Bucket for the `s3` / `external` backend |
+| `ATHENA_LOCAL_S3_PREFIX` | Required scoped development prefix for the `s3` backend |
+| `ATHENA_LOCAL_S3_ENDPOINT` | `external` backend: the object store Trino reads (a `localhost`/`127.0.0.1` endpoint is auto-rewritten — and logged — to the container→host gateway so Trino can reach a host service) |
+| `ATHENA_LOCAL_S3_ACCESS_KEY` / `_SECRET_KEY` | `external` backend static creds (MinIO-style); for real S3 prefer the AWS credential chain |
 | `AWS_PROFILE` | Optional AWS profile (real-S3 workflows) |
 | `AWS_ENDPOINT_URL_S3` | Custom S3 endpoint, only when explicitly configured |
 
@@ -310,10 +312,9 @@ No command blocks on input when stdin/stdout isn't a TTY.
 
 ### Apple `container` (macOS)
 
-Runs the full stack — MinIO, Trino, Hive Metastore, and PostgreSQL — through the shared runtime abstraction; the Bun facade can run on the host for fast iteration. Apple `container` resolves services by name through a local DNS domain; create it once (a one-time `sudo`), then start:
+Runs the full stack — MinIO, Trino, Hive Metastore, and PostgreSQL — through the shared runtime abstraction; the Bun facade can run on the host for fast iteration. Inter-service and host reachability go through the discovered host gateway, so **no DNS-domain setup or `sudo` is required** — just start:
 
 ```bash
-sudo container system dns create <domain>
 athena-local start --runtime apple-container
 ```
 
@@ -329,8 +330,9 @@ athena-local start --runtime docker
 
 | Backend | Use case |
 | --- | --- |
-| **MinIO** | Default — offline local development and CI. Use path-style access. |
+| **MinIO** | Default — bundled, offline local development and CI. Use path-style access. |
 | **AWS S3** | Opt-in — workflows that need real buckets, with a required scoped development prefix. |
+| **External** | Attach to an object store you already run (an existing MinIO, or real S3). athena-local supplies Trino + Hive Metastore + catalog and queries **your** data — it does not start its own MinIO. See [Querying an existing object store](#querying-an-existing-object-store-external-mode). |
 
 Local S3 client for MinIO:
 
@@ -358,6 +360,32 @@ export AWS_REGION=us-east-1
 Use the standard AWS credential chain for real S3 — profiles, environment credentials, SSO, OIDC, or role-based mechanisms (static local creds are fine only for MinIO). Athena Local never logs credentials, Authorization headers, or signed URLs.
 
 **Remote S3 safety** is intentionally conservative: empty prefixes, root-level operations, and bucket deletion are rejected; destructive actions require force/confirmation (explicit flags when noninteractive); cleanup is scoped to the configured prefix; local `reset`/`destroy` never touch remote data.
+
+### Querying an existing object store (external mode)
+
+To query data you **already have** — an existing MinIO, or a real S3 bucket — rather than seeding fixtures, attach to it. athena-local supplies Trino + Hive Metastore + its own catalog Postgres and points Trino at your store; it does not start its own MinIO. This is also how you point athena-local at real AWS S3.
+
+```bash
+export ATHENA_LOCAL_STORAGE_BACKEND=external
+export ATHENA_LOCAL_S3_ENDPOINT=http://127.0.0.1:9000   # your store; localhost → container→host gateway automatically
+export ATHENA_LOCAL_S3_BUCKET=my-existing-bucket
+export ATHENA_LOCAL_S3_ACCESS_KEY=...                    # MinIO-style static creds; for real S3, use the AWS credential chain
+export ATHENA_LOCAL_S3_SECRET_KEY=...
+# In external mode the catalog Postgres auto-defaults to 5433 (off a 5432 you may
+# already run); set ATHENA_LOCAL_PORT_POSTGRES only to override it.
+athena-local start
+```
+
+Then register a table over your data and make its partitions visible. Both ride the normal `StartQueryExecution` path, so you issue them through the **real `AthenaClient`** — no special API:
+
+- **Register** an external table with Trino-dialect DDL, e.g.
+  `CREATE TABLE events (…) WITH (external_location = 's3://my-existing-bucket/events/', format = 'JSON', partitioned_by = ARRAY['account_id','dt'])`.
+- **Sync partitions** as new ones arrive:
+  `CALL system.sync_partition_metadata('<schema>', '<table>', 'ADD')`. Trino/Hive has no Athena-style partition projection, so partitions are registered explicitly — call sync before querying newly-written data.
+
+`QueryExecutionContext.Database` is honored **per query**, so your application keeps using bare table names with the database set on the request — no fully-qualified names and no global default-schema env required. Both `s3://` (the scheme real Athena uses) and `s3a://` external-table locations work.
+
+> **Known limit:** external mode currently assumes a path-style, `us-east-1`-style store (ideal for MinIO). Attaching to **real AWS S3 in another region or with virtual-hosted addressing** needs the store's region/addressing parameterized from `ATHENA_LOCAL_S3_*` — that's a pending follow-up, not yet wired.
 
 ## Modes
 

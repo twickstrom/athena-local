@@ -1,0 +1,53 @@
+name: Changesets
+
+# Maintains the release. On every push to main, Changesets either opens/updates
+# a "Version Packages" PR (consuming .changeset/*.md into a version bump +
+# CHANGELOG) or, once that PR is merged, tags the new version. The tag is pushed
+# with RELEASE_TOKEN (a PAT) so it triggers the Release workflow's OIDC publish —
+# the built-in GITHUB_TOKEN cannot trigger another workflow.
+#
+# Requires a repository secret RELEASE_TOKEN: a fine-grained PAT with Contents
+# read/write and Pull requests read/write on this repo.
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: changesets-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Version or tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Create Version PR or tag the release
+        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
+        with:
+          version: bun run changeset:version
+          # Tag the new version (no npm publish here). Pushing the tag with the
+          # PAT triggers release.yml, which publishes via OIDC. The Release
+          # workflow owns the GitHub release, so this step does not create one.
+          publish: bun run changeset:tag
+          createGithubReleases: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}

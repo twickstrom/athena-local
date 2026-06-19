@@ -42,31 +42,39 @@ Pull requests should include:
 
 ## Releasing
 
-Releases publish to npm from CI using **Trusted Publishing (OIDC)** — there is no
-long-lived npm token in the repository.
+Versioning and changelog are driven by [Changesets](https://github.com/changesets/changesets);
+publishing to npm uses **Trusted Publishing (OIDC)** — there is no long-lived npm
+token in the repository.
 
-One-time maintainer setup on npmjs.com (cannot be automated):
+Day to day:
 
-1. Sign in at npmjs.com → the `athena-local` package → **Settings → Trusted
-   Publishers** (for the very first publish, configure this against the org/user
-   that will own the package).
-2. Add a GitHub Actions publisher:
-   - Repository: `twickstrom/athena-local`
-   - Workflow filename: `release.yml`
-   - Environment: leave blank.
+1. With any user-facing change, add a changeset: `bun run changeset`, pick the
+   bump (patch/minor/major), and write a short summary. Commit the generated
+   `.changeset/*.md` file with your PR.
+2. As changesets land on `main`, the **Changesets** workflow opens (and keeps
+   updating) a "Version Packages" PR that applies the bumps and rewrites
+   `CHANGELOG.md`.
+3. Merge that PR to cut the release. CI tags the new version and pushes the tag,
+   which triggers the **Release** workflow: it runs the full `test:release`
+   gate, packs the tarball, generates a CycloneDX SBOM, attaches a
+   build-provenance attestation, publishes to npm with provenance, and cuts a
+   GitHub release.
 
-To cut a release:
+`prepublishOnly` runs the same `test:release` gate, so even a manual
+`npm publish` cannot ship a broken build. A `v<version>` tag still works for a
+manual release, and **workflow_dispatch** on Release is a dry run that stops
+before publish.
 
-1. Bump `version` in `package.json` and update `CHANGELOG.md`.
-2. Commit, then tag `v<version>` (the tag must match `package.json` exactly — the
-   workflow fails the publish otherwise) and push the tag.
-3. The `Release` workflow runs the full `test:release` gate, packs the tarball,
-   generates a CycloneDX SBOM, attaches a build-provenance attestation, publishes
-   to npm with provenance, and cuts a GitHub release with the SBOM and checksums.
+One-time maintainer setup (cannot be automated):
 
-`npm run` is not required locally: `prepublishOnly` runs the same `test:release`
-gate, so even a manual `npm publish` cannot ship a broken or unchecked build.
-Run `Release` via **workflow_dispatch** for a dry run that stops before publish.
+- **npm Trusted Publisher** — npmjs.com → the `athena-local` package →
+  *Settings → Trusted Publishers* → add repository `twickstrom/athena-local`,
+  workflow `release.yml`.
+- **`RELEASE_TOKEN`** repository secret — a fine-grained PAT with Contents and
+  Pull requests read/write, used by the Changesets workflow to push the release
+  tag (the built-in token cannot trigger the Release workflow).
+- **`CLA_SIGNATURES_TOKEN`** repository secret — a fine-grained PAT with
+  Contents read/write, used by the CLA workflow to store signatures.
 
 ## Security
 

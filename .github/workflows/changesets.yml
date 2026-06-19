@@ -28,19 +28,38 @@ jobs:
       contents: write
       pull-requests: write
     steps:
+      # Skip cleanly (green) until RELEASE_TOKEN is configured, instead of
+      # failing every push. Secrets are not available in job-level `if`, so gate
+      # the steps on a guard output.
+      - name: Check for RELEASE_TOKEN
+        id: guard
+        env:
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          if [ -z "$RELEASE_TOKEN" ]; then
+            echo "RELEASE_TOKEN is not set — skipping Changesets (no-op until configured)."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout
+        if: steps.guard.outputs.ready == 'true'
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_TOKEN }}
 
       - name: Setup Bun
+        if: steps.guard.outputs.ready == 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
 
       - name: Install dependencies
+        if: steps.guard.outputs.ready == 'true'
         run: bun install --frozen-lockfile
 
       - name: Create Version PR or tag the release
+        if: steps.guard.outputs.ready == 'true'
         uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
         with:
           version: bun run changeset:version

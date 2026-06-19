@@ -78,9 +78,7 @@ export function createAthenaLocalHandler(
     endpoint:
       env.TRINO_ENDPOINT ?? `http://127.0.0.1:${resolved.config.ports.trino}`,
     user: env.ATHENA_LOCAL_TRINO_USER ?? "athena-local",
-    catalog: facadeConfig.defaultCatalog === "AwsDataCatalog"
-      ? "hive"
-      : facadeConfig.defaultCatalog,
+    catalog: facadeConfig.trinoCatalog,
     schema: facadeConfig.defaultDatabase,
   });
 
@@ -107,8 +105,14 @@ export function createAthenaLocalHandler(
 function facadeConfigFromEnv(
   env: Record<string, string | undefined>,
 ): AthenaFacadeConfig {
+  const defaultCatalog = env.ATHENA_CATALOG ?? "AwsDataCatalog";
   return {
-    defaultCatalog: env.ATHENA_CATALOG ?? "AwsDataCatalog",
+    defaultCatalog,
+    // The Athena default catalog ("AwsDataCatalog") maps to the local Trino
+    // catalog; everything else is assumed to be a real Trino catalog name.
+    trinoCatalog:
+      env.ATHENA_LOCAL_TRINO_CATALOG ??
+      (defaultCatalog === "AwsDataCatalog" ? "hive" : defaultCatalog),
     defaultDatabase: env.ATHENA_DATABASE ?? "default",
     defaultWorkgroup: env.ATHENA_WORKGROUP ?? "primary",
     defaultOutputLocation:

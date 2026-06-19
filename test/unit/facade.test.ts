@@ -85,6 +85,7 @@ function createService(trino: FakeTrino, storage = new FakeStorage()) {
     },
     config: {
       defaultCatalog: "AwsDataCatalog",
+      trinoCatalog: "hive",
       defaultDatabase: "default",
       defaultWorkgroup: "primary",
       defaultOutputLocation: "s3://athena-local-results/local/",

@@ -13,6 +13,14 @@ export type TrinoFetch = (
   init?: RequestInit,
 ) => Promise<Response>;
 
+// Per-query catalog/schema, mapped from the request's QueryExecutionContext so a
+// client can set the database per request (standard Athena behavior) rather than
+// only at startup.
+export interface TrinoQueryContext {
+  readonly catalog?: string;
+  readonly schema?: string;
+}
+
 export class TrinoClient {
   readonly #config: TrinoClientConfig;
   readonly #fetch: TrinoFetch;
@@ -22,10 +30,13 @@ export class TrinoClient {
     this.#fetch = fetchImplementation;
   }
 
-  async submit(sql: string): Promise<TrinoQuerySubmission> {
+  async submit(
+    sql: string,
+    context: TrinoQueryContext = {},
+  ): Promise<TrinoQuerySubmission> {
     const response = await this.#fetch(`${this.#config.endpoint}/v1/statement`, {
       method: "POST",
-      headers: this.#headers(),
+      headers: this.#headers(context),
       body: sql,
     });
 
@@ -60,14 +71,13 @@ export class TrinoClient {
     }
   }
 
-  #headers(): Readonly<Record<string, string>> {
+  #headers(context: TrinoQueryContext = {}): Readonly<Record<string, string>> {
+    const schema = context.schema ?? this.#config.schema;
     return {
       "content-type": "text/plain",
       "x-trino-user": this.#config.user,
-      "x-trino-catalog": this.#config.catalog,
-      ...(this.#config.schema === undefined
-        ? {}
-        : { "x-trino-schema": this.#config.schema }),
+      "x-trino-catalog": context.catalog ?? this.#config.catalog,
+      ...(schema === undefined ? {} : { "x-trino-schema": schema }),
     };
   }
 

@@ -50,6 +50,8 @@ export interface AthenaFacadeIds {
 export interface AthenaFacadeConfig {
   readonly defaultCatalog: string;
   readonly defaultDatabase: string;
+  // The Trino catalog the Athena default catalog (e.g. "AwsDataCatalog") maps to.
+  readonly trinoCatalog: string;
   readonly defaultWorkgroup: string;
   readonly defaultOutputLocation: string;
 }
@@ -425,9 +427,28 @@ export class AthenaFacadeService implements AthenaOperationHandlers {
     return {};
   }
 
+  // Map the recorded Athena catalog/database to the Trino catalog/schema for
+  // this query, so QueryExecutionContext.Database/Catalog are honored per request
+  // (rather than only via the facade's startup defaults).
+  #trinoContext(record: QueryExecutionRecord): {
+    readonly catalog: string;
+    readonly schema?: string;
+  } {
+    const catalog =
+      record.catalogName === undefined ||
+      record.catalogName === this.#config.defaultCatalog
+        ? this.#config.trinoCatalog
+        : record.catalogName;
+    const schema = record.databaseName ?? this.#config.defaultDatabase;
+    return removeUndefined({ catalog, schema });
+  }
+
   async #execute(record: QueryExecutionRecord): Promise<void> {
     try {
-      const submitted = await this.#trino.submit(record.queryText);
+      const submitted = await this.#trino.submit(
+        record.queryText,
+        this.#trinoContext(record),
+      );
       this.#repository.updateState(record.queryExecutionId, {
         state: "RUNNING",
         now: this.#clock.now(),

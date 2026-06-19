@@ -67,6 +67,7 @@ describe("query lifecycle persistence", () => {
       },
       config: {
         defaultCatalog: "AwsDataCatalog",
+        trinoCatalog: "hive",
         defaultDatabase: "default",
         defaultWorkgroup: "primary",
         defaultOutputLocation: "s3://athena-local-results/local/",

@@ -314,3 +314,55 @@ describe("external-table registration and partition sync (DDL/CALL)", () => {
     harness.close();
   });
 });
+
+// Athena clients set the database per request via QueryExecutionContext; the
+// facade must map it to the Trino schema (and the catalog) for that query, not
+// only honor a startup default.
+describe("per-query database/catalog context", () => {
+  const finished = () =>
+    new FakeTrino({
+      queryId: "q",
+      page: {
+        id: "q",
+        columns: [{ name: "n", type: "integer" }],
+        data: [[1]],
+        stats: { state: "FINISHED" },
+      },
+    });
+
+  test("maps QueryExecutionContext.Database to the Trino schema", async () => {
+    const trino = finished();
+    const harness = createFacadeHarness({ trino });
+    await harness.service.StartQueryExecution({
+      QueryString: "select * from events",
+      QueryExecutionContext: {
+        Catalog: "AwsDataCatalog",
+        Database: "briefcase_analytics",
+      },
+    });
+    expect(trino.contexts[0]).toEqual({
+      catalog: "hive",
+      schema: "briefcase_analytics",
+    });
+    harness.close();
+  });
+
+  test("falls back to the default database and maps the default catalog", async () => {
+    const trino = finished();
+    const harness = createFacadeHarness({ trino });
+    await harness.service.StartQueryExecution({ QueryString: "select 1" });
+    expect(trino.contexts[0]).toEqual({ catalog: "hive", schema: "default" });
+    harness.close();
+  });
+
+  test("passes a non-default catalog through unmapped", async () => {
+    const trino = finished();
+    const harness = createFacadeHarness({ trino });
+    await harness.service.StartQueryExecution({
+      QueryString: "select 1",
+      QueryExecutionContext: { Catalog: "tpch", Database: "sf1" },
+    });
+    expect(trino.contexts[0]).toEqual({ catalog: "tpch", schema: "sf1" });
+    harness.close();
+  });
+});

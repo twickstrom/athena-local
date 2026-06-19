@@ -16,7 +16,7 @@ import type {
   StorageBackend,
   StorageWriteInput,
 } from "../../src/storage/types.ts";
-import type { TrinoClient } from "../../src/trino/client.ts";
+import type { TrinoClient, TrinoQueryContext } from "../../src/trino/client.ts";
 import type {
   TrinoColumn,
   TrinoPage,
@@ -69,6 +69,7 @@ export class FakeStorage implements StorageBackend {
  */
 export class FakeTrino {
   readonly submissions: string[] = [];
+  readonly contexts: TrinoQueryContext[] = [];
   readonly cancellations: string[] = [];
   submission: TrinoQuerySubmission;
   pages = new Map<string, TrinoPage>();
@@ -77,8 +78,12 @@ export class FakeTrino {
     this.submission = submission;
   }
 
-  async submit(sql: string): Promise<TrinoQuerySubmission> {
+  async submit(
+    sql: string,
+    context: TrinoQueryContext = {},
+  ): Promise<TrinoQuerySubmission> {
     this.submissions.push(sql);
+    this.contexts.push(context);
     return this.submission;
   }
 
@@ -171,6 +176,7 @@ export function createFacadeHarness(options: {
     },
     config: {
       defaultCatalog: "AwsDataCatalog",
+      trinoCatalog: "hive",
       defaultDatabase: "default",
       defaultWorkgroup: "primary",
       defaultOutputLocation: "s3://athena-local-results/local/",

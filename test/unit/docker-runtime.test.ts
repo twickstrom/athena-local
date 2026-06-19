@@ -78,6 +78,8 @@ describe("Docker runtime adapter command generation", () => {
           "athena-local",
           "--network-alias",
           "trino",
+          "--add-host",
+          "host.docker.internal:host-gateway",
           "--label",
           "athena-local.project=athena-local",
           "--publish",

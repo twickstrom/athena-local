@@ -47,4 +47,20 @@ describe("runtime config generation", () => {
     expect(hiveSite).toContain("jdbc:postgresql://10.88.0.1:15432/metastore");
     expect(hiveSite).toContain("http://10.88.0.1:19000");
   });
+
+  test("maps the s3 scheme to S3A so the Metastore accepts s3:// locations", async () => {
+    // Trino's native S3 handles s3://, but the Hive Metastore's Hadoop S3A only
+    // registers s3a:// by default — so an external table at an s3:// location
+    // (the scheme real Athena uses) fails without this mapping. Guard it.
+    const root = mkdtempSync(join(tmpdir(), "athena-local-runtime-"));
+    const paths = await prepareLocalRuntimeConfig({ root });
+    const hiveSite = await Bun.file(
+      join(paths.hiveConfigDir, "hive-site.xml"),
+    ).text();
+    expect(hiveSite).toContain(
+      "<name>fs.s3.impl</name><value>org.apache.hadoop.fs.s3a.S3AFileSystem</value>",
+    );
+    expect(hiveSite).toContain("<name>fs.s3.access.key</name>");
+    expect(hiveSite).toContain("<name>fs.s3.path.style.access</name>");
+  });
 });

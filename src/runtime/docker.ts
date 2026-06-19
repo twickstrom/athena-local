@@ -136,6 +136,10 @@ export class DockerRuntimeAdapter implements RuntimeAdapter {
       this.#networkName,
       "--network-alias",
       service.name,
+      // host.docker.internal is built in on Docker Desktop but not on Linux
+      // Engine; map it so Trino can reach a host/external object store there too.
+      "--add-host",
+      "host.docker.internal:host-gateway",
       "--label",
       `athena-local.project=${this.#projectName}`,
       ...service.ports.flatMap((port) => [

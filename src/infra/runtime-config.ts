@@ -117,6 +117,11 @@ function hiveSiteXml(options: RuntimeConfigOptions): string {
   ${property("fs.s3a.path.style.access", "true")}
   ${property("fs.s3a.access.key", accessKey)}
   ${property("fs.s3a.secret.key", secretKey)}
+  ${property("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")}
+  ${property("fs.s3.endpoint", endpoint)}
+  ${property("fs.s3.path.style.access", "true")}
+  ${property("fs.s3.access.key", accessKey)}
+  ${property("fs.s3.secret.key", secretKey)}
 </configuration>
 `;
 }

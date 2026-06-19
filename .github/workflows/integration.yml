@@ -83,3 +83,71 @@ jobs:
             docker logs "$c" > "/tmp/stack-logs/$c.log" 2>&1 || true
           done
           echo "Collected logs:"; ls -la /tmp/stack-logs
+
+  external-attach:
+    name: Docker external-store attach
+    # Pins that attach mode + s3:// / s3a:// external tables keep working live.
+    if: >
+      github.event_name == 'push' ||
+      contains(github.event.pull_request.labels.*.name, 'integration')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ATHENA_LOCAL_CONTAINER_RUNTIME: docker
+      ATHENA_LOCAL_STORAGE_BACKEND: external
+      ATHENA_LOCAL_S3_BUCKET: analytics
+      ATHENA_LOCAL_S3_ENDPOINT: http://localhost:19000
+      ATHENA_LOCAL_S3_ACCESS_KEY: minioadmin
+      ATHENA_LOCAL_S3_SECRET_KEY: minioadmin
+      ATHENA_OUTPUT_LOCATION: s3://analytics/_results/
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Start a standalone external MinIO (the "store you already run")
+        run: |
+          docker run -d --name ext-minio -p 19000:9000 \
+            -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
+            quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z server /data
+          for i in $(seq 1 30); do
+            curl -fsS -o /dev/null http://127.0.0.1:19000/minio/health/ready && echo "minio up" && break
+            sleep 1
+          done
+
+      - name: Start athena-local in external mode (attach to the MinIO)
+        run: |
+          nohup bun run src/cli.ts start --runtime docker > /tmp/athena-start.log 2>&1 &
+          for i in $(seq 1 120); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://127.0.0.1:4567/ \
+              -H "X-Amz-Target: AmazonAthena.GetQueryExecution" \
+              -H "Content-Type: application/x-amz-json-1.1" -d '{}' || true)
+            if [ "$code" != "000" ] && [ -n "$code" ]; then echo "facade up (HTTP $code)"; break; fi
+            sleep 2
+          done
+          docker ps --format '{{.Names}}\t{{.Status}}'
+
+      - name: Register s3:// and s3a:// external tables and query them
+        env:
+          ATHENA_LOCAL_LIVE_EXTERNAL: "1"
+        run: bun test test/e2e/external-stack.test.ts
+
+      - name: Tear down
+        if: always()
+        run: |
+          bun run src/cli.ts destroy --runtime docker || true
+          docker rm -f ext-minio || true
+
+      - name: Upload stack logs on failure
+        if: failure()
+        run: |
+          mkdir -p /tmp/stack-logs
+          for c in athena-local-postgres athena-local-hive-metastore athena-local-trino ext-minio; do
+            docker logs "$c" > "/tmp/stack-logs/$c.log" 2>&1 || true
+          done
+          cat /tmp/athena-start.log || true

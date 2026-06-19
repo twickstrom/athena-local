@@ -4,7 +4,11 @@
 export const containerRuntimes = ["apple-container", "docker"] as const;
 export type ContainerRuntime = (typeof containerRuntimes)[number];
 
-export const storageBackends = ["minio", "s3"] as const;
+// "minio": athena-local runs a bundled MinIO. "s3": real AWS S3 (credential
+// chain, prefix-scoped). "external": attach to an external S3-compatible store
+// (e.g. an existing MinIO) at an explicit endpoint+bucket — athena-local does
+// not run its own object store and reads/writes data it does not own.
+export const storageBackends = ["minio", "s3", "external"] as const;
 export type StorageBackend = (typeof storageBackends)[number];
 
 export const executionModes = ["test", "persistent"] as const;
@@ -23,6 +27,8 @@ export interface AthenaLocalConfig {
   readonly awsRegion: string;
   readonly s3Bucket?: string;
   readonly s3Prefix?: string;
+  // External S3-compatible endpoint (attach mode), as seen from the host.
+  readonly s3Endpoint?: string;
   readonly ports: {
     readonly athena: number;
     readonly minio: number;
@@ -45,6 +51,7 @@ export interface PartialAthenaLocalConfig {
   readonly awsRegion?: unknown;
   readonly s3Bucket?: unknown;
   readonly s3Prefix?: unknown;
+  readonly s3Endpoint?: unknown;
   readonly ports?: unknown;
   readonly logLevel?: unknown;
   readonly outputMode?: unknown;

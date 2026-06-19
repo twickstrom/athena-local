@@ -118,4 +118,34 @@ describe("configuration resolution", () => {
       postgres: 15432,
     });
   });
+
+  test("accepts a valid external storage backend", () => {
+    const resolved = resolveConfig({
+      env: {
+        ATHENA_LOCAL_STORAGE_BACKEND: "external",
+        ATHENA_LOCAL_S3_BUCKET: "briefcase-analytics",
+        ATHENA_LOCAL_S3_ENDPOINT: "http://localhost:9000",
+      },
+    });
+
+    expect(resolved.issues).toEqual([]);
+    expect(resolved.config.storageBackend).toBe("external");
+    expect(resolved.config.s3Bucket).toBe("briefcase-analytics");
+    expect(resolved.config.s3Endpoint).toBe("http://localhost:9000");
+  });
+
+  test("requires bucket and endpoint for the external backend", () => {
+    const resolved = resolveConfig({
+      env: { ATHENA_LOCAL_STORAGE_BACKEND: "external" },
+    });
+
+    expect(resolved.issues).toContainEqual({
+      field: "s3Bucket",
+      message: "External storage requires ATHENA_LOCAL_S3_BUCKET.",
+    });
+    expect(resolved.issues).toContainEqual({
+      field: "s3Endpoint",
+      message: "External storage requires ATHENA_LOCAL_S3_ENDPOINT.",
+    });
+  });
 });

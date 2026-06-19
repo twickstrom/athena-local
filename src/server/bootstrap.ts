@@ -38,36 +38,38 @@ export function createAthenaLocalHandler(
   const repository = new QueryExecutionRepository(state.database);
   const facadeConfig = facadeConfigFromEnv(env);
   const output = parseOutputLocation(facadeConfig.defaultOutputLocation);
-  const isMinio = resolved.config.storageBackend === "minio";
+  const backend = resolved.config.storageBackend;
+  const isMinio = backend === "minio";
+  const isExternal = backend === "external";
+  // The facade runs on the host, so it reaches an external store at its host
+  // endpoint as-is (no gateway rewrite — that is only for in-container Trino).
+  const endpoint = isMinio
+    ? env.ATHENA_LOCAL_MINIO_ENDPOINT ??
+      env.S3_ENDPOINT ??
+      `http://127.0.0.1:${resolved.config.ports.minio}`
+    : isExternal
+      ? env.ATHENA_LOCAL_S3_ENDPOINT ?? resolved.config.s3Endpoint
+      : env.AWS_ENDPOINT_URL_S3;
+  // Credentials: MinIO defaults to built-in dev creds; external accepts explicit
+  // keys (MinIO-style) and otherwise falls back to the AWS chain (real S3); the
+  // s3 backend uses only explicitly provided credentials.
+  const accessKeyId = isMinio
+    ? env.AWS_ACCESS_KEY_ID ?? env.ATHENA_LOCAL_MINIO_ACCESS_KEY ?? "local"
+    : isExternal
+      ? env.ATHENA_LOCAL_S3_ACCESS_KEY ?? env.AWS_ACCESS_KEY_ID
+      : env.AWS_ACCESS_KEY_ID;
+  const secretAccessKey = isMinio
+    ? env.AWS_SECRET_ACCESS_KEY ?? env.ATHENA_LOCAL_MINIO_SECRET_KEY ?? "local-secret"
+    : isExternal
+      ? env.ATHENA_LOCAL_S3_SECRET_KEY ?? env.AWS_SECRET_ACCESS_KEY
+      : env.AWS_SECRET_ACCESS_KEY;
   const storageOptions: BunS3StorageOptions = {
-    kind: resolved.config.storageBackend,
+    kind: isMinio ? "minio" : "s3",
     bucket: output.bucket,
     region: resolved.config.awsRegion,
-    ...optionalString(
-      "endpoint",
-      isMinio
-        ? env.ATHENA_LOCAL_MINIO_ENDPOINT ??
-            env.S3_ENDPOINT ??
-            `http://127.0.0.1:${resolved.config.ports.minio}`
-        : env.AWS_ENDPOINT_URL_S3,
-    ),
-    // For the local MinIO backend, default to the stack's built-in development
-    // credentials so the facade works out of the box; explicit env still wins.
-    // For the AWS S3 backend, only use explicitly provided credentials.
-    ...optionalString(
-      "accessKeyId",
-      isMinio
-        ? env.AWS_ACCESS_KEY_ID ?? env.ATHENA_LOCAL_MINIO_ACCESS_KEY ?? "local"
-        : env.AWS_ACCESS_KEY_ID,
-    ),
-    ...optionalString(
-      "secretAccessKey",
-      isMinio
-        ? env.AWS_SECRET_ACCESS_KEY ??
-            env.ATHENA_LOCAL_MINIO_SECRET_KEY ??
-            "local-secret"
-        : env.AWS_SECRET_ACCESS_KEY,
-    ),
+    ...optionalString("endpoint", endpoint),
+    ...optionalString("accessKeyId", accessKeyId),
+    ...optionalString("secretAccessKey", secretAccessKey),
     ...optionalString("sessionToken", env.AWS_SESSION_TOKEN),
   };
   const storage = new BunS3Storage(storageOptions);

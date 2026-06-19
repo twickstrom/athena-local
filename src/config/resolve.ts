@@ -60,6 +60,7 @@ export function configFromEnv(
     awsRegion: env.AWS_REGION,
     s3Bucket: env.ATHENA_LOCAL_S3_BUCKET,
     s3Prefix: env.ATHENA_LOCAL_S3_PREFIX,
+    s3Endpoint: env.ATHENA_LOCAL_S3_ENDPOINT,
     ports: removeUndefinedRecord({
       athena: optionalNumberFromEnv(env.ATHENA_LOCAL_PORT_ATHENA),
       minio: optionalNumberFromEnv(env.ATHENA_LOCAL_PORT_MINIO),
@@ -132,6 +133,7 @@ function coerceConfig(
       defaultConfig.awsRegion,
     s3Bucket: optionalString("s3Bucket", value.s3Bucket, issues),
     s3Prefix: optionalString("s3Prefix", value.s3Prefix, issues),
+    s3Endpoint: optionalString("s3Endpoint", value.s3Endpoint, issues),
     ports: coercePorts(value.ports, issues),
     logLevel:
       optionalEnum(
@@ -172,6 +174,21 @@ function validateConfig(config: AthenaLocalConfig, issues: ConfigIssue[]): void 
       issues.push({
         field: "s3Prefix",
         message: "AWS S3 prefix must not target a bucket root or parent path.",
+      });
+    }
+  }
+
+  if (config.storageBackend === "external") {
+    if (config.s3Bucket === undefined || config.s3Bucket.length === 0) {
+      issues.push({
+        field: "s3Bucket",
+        message: "External storage requires ATHENA_LOCAL_S3_BUCKET.",
+      });
+    }
+    if (config.s3Endpoint === undefined || config.s3Endpoint.length === 0) {
+      issues.push({
+        field: "s3Endpoint",
+        message: "External storage requires ATHENA_LOCAL_S3_ENDPOINT.",
       });
     }
   }

@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Tim Wickstrom
 
 import { describe, expect, test } from "bun:test";
-import { createLocalStackServices } from "../../src/infra/services.ts";
+import { createLocalStackServices, localServiceImages } from "../../src/infra/services.ts";
 import { DockerRuntimeAdapter } from "../../src/runtime/docker.ts";
 import { validateServiceDefinition } from "../../src/runtime/types.ts";
 
@@ -34,15 +34,11 @@ describe("local stack service definitions", () => {
       executable: "docker",
       args: ["network", "create", "athena-local"],
     });
-    expect(commands.some((command) => command.args.includes("trinodb/trino:477"))).toBe(
-      true,
-    );
     expect(
-      commands.some((command) =>
-        command.args.includes(
-          "quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z",
-        ),
-      ),
+      commands.some((command) => command.args.includes(localServiceImages.trino)),
+    ).toBe(true);
+    expect(
+      commands.some((command) => command.args.includes(localServiceImages.minio)),
     ).toBe(true);
   });
 
@@ -88,7 +84,7 @@ describe("local stack service definitions", () => {
     });
     expect(hive?.initTasks).toEqual([
       {
-        image: "trinodb/trino:477",
+        image: localServiceImages.trino,
         command: [
           "cp",
           "/usr/lib/trino/plugin/postgresql/org.postgresql_postgresql-42.7.8.jar",

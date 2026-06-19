@@ -6,11 +6,20 @@ import type { AthenaLocalConfig } from "../config/types.ts";
 import type { RuntimeServiceDefinition } from "../runtime/types.ts";
 import type { RuntimeConfigPaths } from "./runtime-config.ts";
 
+// Pinned by digest so a re-tagged upstream image can't change what boots. The
+// tag stays for readability and is the source of truth for the version; the
+// @sha256 is the exact manifest. Renovate keeps both in lockstep — when bumping
+// a tag by hand, refresh the digest with:
+//   docker buildx imagetools inspect <ref> --format '{{.Manifest.Digest}}'
 export const localServiceImages = {
-  minio: "quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z",
-  postgres: "postgres:17.5-alpine",
-  hiveMetastore: "apache/hive:4.0.1",
-  trino: "trinodb/trino:477",
+  minio:
+    "quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z@sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e",
+  postgres:
+    "postgres:17.5-alpine@sha256:6567bca8d7bc8c82c5922425a0baee57be8402df92bae5eacad5f01ae9544daa",
+  hiveMetastore:
+    "apache/hive:4.0.1@sha256:5194161ef50b80875f937dff04936df047cbe894e9727ab8f0606349345b1bd3",
+  trino:
+    "trinodb/trino:477@sha256:ada485e4bffb90f859b401dc04c393d147b5840846ef66b27110662eb2675854",
 } as const;
 
 export interface LocalStackServiceOptions {

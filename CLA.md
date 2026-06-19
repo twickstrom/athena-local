@@ -75,12 +75,14 @@ any kind.
 
 ## How to sign
 
-Until an automated CLA assistant is configured, indicate agreement by adding a
-line to your first pull request:
+When you open your first pull request, the CLA assistant comments with the exact
+phrase to sign. Agree by posting it as a pull request comment:
 
 ```
-I have read the CLA and I agree to it. Signed, <your name> <your email>
+I have read the CLA and I hereby sign the CLA
 ```
 
-The maintainer records agreement against your GitHub username. Corporate
-contributors should contact the maintainer for the Entity CLA before submitting.
+Your agreement is recorded against your GitHub username in
+[`signatures/cla.json`](signatures/cla.json), and the CLA status check turns
+green. Corporate contributors should contact the maintainer for the Entity CLA
+before submitting.

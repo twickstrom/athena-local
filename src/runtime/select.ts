@@ -31,10 +31,12 @@ export function createRuntimePlanSummary(input: {
   readonly networkName: string;
   readonly configPaths?: RuntimeConfigPaths;
   readonly ports?: AthenaLocalConfig["ports"];
+  readonly bundledMinio?: boolean;
 }): RuntimePlanSummary {
   const services = createLocalStackServices({
     ...(input.configPaths === undefined ? {} : { configPaths: input.configPaths }),
     ...(input.ports === undefined ? {} : { ports: input.ports }),
+    ...(input.bundledMinio === undefined ? {} : { bundledMinio: input.bundledMinio }),
   });
   const adapter =
     input.runtime === "docker"
@@ -65,10 +67,12 @@ export function createRuntimeCommandPlan(input: {
   readonly redact?: boolean;
   readonly configPaths?: RuntimeConfigPaths;
   readonly ports?: AthenaLocalConfig["ports"];
+  readonly bundledMinio?: boolean;
 }): RuntimeCommandPlan {
   const services = createLocalStackServices({
     ...(input.configPaths === undefined ? {} : { configPaths: input.configPaths }),
     ...(input.ports === undefined ? {} : { ports: input.ports }),
+    ...(input.bundledMinio === undefined ? {} : { bundledMinio: input.bundledMinio }),
   });
   const adapter = createAdapter(input);
   const commands = commandPlan(input.command, adapter, services);

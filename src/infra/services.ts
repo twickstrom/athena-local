@@ -16,6 +16,9 @@ export const localServiceImages = {
 export interface LocalStackServiceOptions {
   readonly configPaths?: RuntimeConfigPaths;
   readonly ports?: AthenaLocalConfig["ports"];
+  // Whether to run the bundled MinIO. False for the s3/external backends, which
+  // attach to an object store athena-local does not own.
+  readonly bundledMinio?: boolean;
 }
 
 const defaultPorts: AthenaLocalConfig["ports"] = {
@@ -36,7 +39,8 @@ export function createLocalStackServices(
     hiveConfigDir: ".athena-local/runtime/hive",
   };
   const ports = options.ports ?? defaultPorts;
-  return [
+  const bundledMinio = options.bundledMinio ?? true;
+  const services: readonly RuntimeServiceDefinition[] = [
     {
       name: "postgres",
       image: localServiceImages.postgres,
@@ -159,7 +163,7 @@ export function createLocalStackServices(
           readonly: true,
         },
       ],
-      dependsOn: ["postgres", "minio"],
+      dependsOn: bundledMinio ? ["postgres", "minio"] : ["postgres"],
       readiness: {
         type: "tcp",
         host: "127.0.0.1",
@@ -189,7 +193,7 @@ export function createLocalStackServices(
           readonly: true,
         },
       ],
-      dependsOn: ["hive-metastore", "minio"],
+      dependsOn: bundledMinio ? ["hive-metastore", "minio"] : ["hive-metastore"],
       readiness: {
         type: "http",
         url: `http://127.0.0.1:${ports.trino}/v1/info`,
@@ -197,6 +201,10 @@ export function createLocalStackServices(
       },
     },
   ];
+
+  return bundledMinio
+    ? services
+    : services.filter((service) => service.name !== "minio");
 }
 
 export function createSelectOneReadinessCommand(): ReturnType<typeof createCommandSpec> {

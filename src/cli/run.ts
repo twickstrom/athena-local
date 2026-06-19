@@ -142,6 +142,7 @@ export function runCli(
             projectName: resolved.config.projectId,
             networkName: resolved.config.projectId,
             ports: resolved.config.ports,
+            bundledMinio: resolved.config.storageBackend === "minio",
           });
     const runtimeCommands =
       resolved.config.containerRuntime === undefined ||
@@ -154,6 +155,7 @@ export function runCli(
             networkName: resolved.config.projectId,
             redact: true,
             ports: resolved.config.ports,
+            bundledMinio: resolved.config.storageBackend === "minio",
           });
     const serviceStatus =
       parsed.command !== "status" || runtimePlan === undefined
@@ -346,7 +348,12 @@ async function inspectRuntimeStatus(
   environment: CliEnvironment,
 ): Promise<CliResult> {
   const adapter = createRuntimeAdapters(config, environment)[config.containerRuntime!];
-  const status = await adapter.status(createLocalStackServices({ ports: config.ports }));
+  const status = await adapter.status(
+    createLocalStackServices({
+      ports: config.ports,
+      bundledMinio: config.storageBackend === "minio",
+    }),
+  );
 
   if (json) {
     const output = JSON.parse(result.stdout) as Record<string, unknown>;
@@ -405,16 +412,18 @@ async function executeRuntimeCommand(
       createRuntimeAdapters(config, environment)[config.containerRuntime];
     const hostGateway = await adapter.resolveHostGateway();
     configPaths = await configWriter(
-      interServiceConfigOptions(config.containerRuntime, config.ports, hostGateway),
+      interServiceConfigOptions(config, hostGateway, environment.env ?? {}),
     );
   }
 
+  const bundledMinio = config.storageBackend === "minio";
   const plan = createRuntimeCommandPlan({
     runtime: config.containerRuntime,
     command,
     projectName: config.projectId,
     networkName: config.projectId,
     ports: config.ports,
+    bundledMinio,
     ...(configPaths === undefined ? {} : { configPaths }),
   });
   const rollback =
@@ -425,6 +434,7 @@ async function executeRuntimeCommand(
           projectName: config.projectId,
           networkName: config.projectId,
           ports: config.ports,
+          bundledMinio,
           ...(configPaths === undefined ? {} : { configPaths }),
         }).commands
       : [];
@@ -443,6 +453,7 @@ async function executeRuntimeCommand(
         createLocalStackServices({
           ...(configPaths === undefined ? {} : { configPaths }),
           ports: config.ports,
+          bundledMinio,
         }),
         environment.readinessProbes ?? createDefaultReadinessProbes(executor),
         environment.readinessOptions,
@@ -592,24 +603,69 @@ async function detectRuntimes(
   };
 }
 
-// Inter-service addresses as the containers see them. Docker resolves sibling
-// services by their --network-alias names (the runtime-config defaults), so it
-// needs no overrides. Apple container has no such DNS, so every reference goes
-// through the discovered host gateway plus the host-published port.
-function interServiceConfigOptions(
-  runtime: ContainerRuntime,
-  ports: AthenaLocalConfig["ports"],
+// Inter-service addresses as the containers see them. Postgres/Hive addressing
+// is storage-independent: Docker resolves siblings by --network-alias name;
+// Apple container has no such DNS, so it routes through the discovered host
+// gateway. The object-store endpoint is storage-dependent: bundled MinIO (gateway
+// or service name) vs an external store on the host (its endpoint, with a
+// localhost host rewritten to the container-reachable gateway).
+export function interServiceConfigOptions(
+  config: AthenaLocalConfig,
   hostGateway: string,
+  env: Record<string, string | undefined>,
 ): RuntimeConfigOptions {
-  if (runtime === "apple-container") {
+  const base: RuntimeConfigOptions =
+    config.containerRuntime === "apple-container"
+      ? {
+          postgresHost: hostGateway,
+          postgresPort: config.ports.postgres,
+          hiveMetastoreUri: `thrift://${hostGateway}:${config.ports.hiveMetastore}`,
+        }
+      : {};
+
+  if (config.storageBackend === "external" && config.s3Endpoint !== undefined) {
+    const rewrite = rewriteHostEndpoint(config.s3Endpoint, hostGateway);
+    if (rewrite.rewritten) {
+      console.error(
+        `athena-local: external S3 endpoint rewritten for the Trino container: ${config.s3Endpoint} -> ${rewrite.endpoint}`,
+      );
+    }
+    const accessKey = env.ATHENA_LOCAL_S3_ACCESS_KEY ?? env.AWS_ACCESS_KEY_ID;
+    const secretKey = env.ATHENA_LOCAL_S3_SECRET_KEY ?? env.AWS_SECRET_ACCESS_KEY;
     return {
-      postgresHost: hostGateway,
-      postgresPort: ports.postgres,
-      minioEndpoint: `http://${hostGateway}:${ports.minio}`,
-      hiveMetastoreUri: `thrift://${hostGateway}:${ports.hiveMetastore}`,
+      ...base,
+      minioEndpoint: rewrite.endpoint,
+      ...(accessKey === undefined ? {} : { minioAccessKey: accessKey }),
+      ...(secretKey === undefined ? {} : { minioSecretKey: secretKey }),
     };
   }
-  return {};
+
+  if (config.containerRuntime === "apple-container") {
+    return {
+      ...base,
+      minioEndpoint: `http://${hostGateway}:${config.ports.minio}`,
+    };
+  }
+  return base;
+}
+
+// Replace only a localhost / 127.0.0.1 host with the container-reachable host
+// gateway, so an external store on the host is reachable from inside Trino. Any
+// other hostname (a real S3 endpoint, a named service) passes through untouched.
+export function rewriteHostEndpoint(
+  endpoint: string,
+  gateway: string,
+): { readonly endpoint: string; readonly rewritten: boolean } {
+  const match = endpoint.match(
+    /^(https?:\/\/)(localhost|127\.0\.0\.1)(?=[:/]|$)/i,
+  );
+  if (match === null) {
+    return { endpoint, rewritten: false };
+  }
+  return {
+    endpoint: endpoint.replace(match[0], `${match[1]}${gateway}`),
+    rewritten: true,
+  };
 }
 
 // Fetch the last lines of a service's container log so a readiness failure can

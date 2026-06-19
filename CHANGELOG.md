@@ -1,6 +1,14 @@
 # Changelog
 
-This project follows semantic versioning.
+## 0.1.3
+
+### Patch Changes
+
+- [`81716fd`](https://github.com/twickstrom/athena-local/commit/81716fd7069fdf917fd42fbaa9efe65b9ad465e5) Thanks [@twickstrom](https://github.com/twickstrom)! - Add a `query` subcommand for end-to-end verification without writing SDK code:
+  `athena-local query "SELECT 1" [--database <name>] [--json]` runs a one-shot
+  StartQueryExecution → poll → GetQueryResults against the running facade over the
+  real AWS-JSON protocol and exits non-zero if the statement fails — a handy
+  CI/diagnostic primitive.
 
 ## 0.1.2
 

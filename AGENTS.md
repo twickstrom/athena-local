@@ -31,6 +31,16 @@ bunx athena-local seed      # optional: a default.athena_local_smoke sample tabl
 and `destroy` tear it down. `--facade-only` serves just the protocol with no
 containers — queries still need Trino, so it is for protocol/wiring checks only.
 
+Verify the stack end to end without writing SDK code:
+
+```bash
+bunx athena-local query "SELECT 1"            # one-shot StartQuery -> poll -> results
+bunx athena-local query "SELECT * FROM events" --database analytics --json
+```
+
+`query` drives the running facade over the real AWS-JSON protocol and exits
+non-zero if the statement fails — a handy CI/diagnostic primitive.
+
 ## How an application consumes it
 
 Point the AWS SDK clients at the local stack — no app code changes beyond config:
@@ -209,8 +219,8 @@ config file → automatic detection. Validate all config at startup
 (`src/config`); never prompt in CI/non-interactive runs.
 
 - Ports: `ATHENA_LOCAL_PORT_ATHENA` (4567), `_TRINO` (8080), `_MINIO` (9000),
-  `_MINIO_CONSOLE` (9001), `_HIVE_METASTORE` (9083), `_POSTGRES` (5432);
-  `ATHENA_LOCAL_PORT` / `--port` overrides the facade port.
+  `_MINIO_CONSOLE` (9001), `_HIVE_METASTORE` (9083), `_POSTGRES` (5432; auto-5433
+  in s3/external mode); `ATHENA_LOCAL_PORT` / `--port` overrides the facade port.
 - Runtime: `ATHENA_LOCAL_CONTAINER_RUNTIME` / `--runtime` (`docker` |
   `apple-container`).
 - Storage: `ATHENA_LOCAL_STORAGE_BACKEND`, `ATHENA_LOCAL_S3_BUCKET`,
@@ -225,8 +235,9 @@ config file → automatic detection. Validate all config at startup
   `AWS_SESSION_TOKEN`, `AWS_ENDPOINT_URL_S3`).
 
 CLI commands (`bunx athena-local <cmd>`): `configure`, `doctor`, `start`,
-`stop`, `status`, `reset`, `destroy`, `seed`. Notable flags: `--facade-only`,
-`--mode`, `--project-id`, `--run-id`, `--s3-bucket`, `--s3-prefix`, `--json`.
+`stop`, `status`, `reset`, `destroy`, `seed`, `query`. Notable flags:
+`--facade-only`, `--mode`, `--project-id`, `--run-id`, `--s3-bucket`,
+`--s3-prefix`, `--database` (for `query`), `--json`.
 
 ## Repository map
 

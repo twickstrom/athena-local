@@ -49,7 +49,7 @@ import type {
   RuntimeKind,
   RuntimeStatus,
 } from "../runtime/types.ts";
-import { commands, parseArgs } from "./args.ts";
+import { commands, parseArgs, type ParsedArgs } from "./args.ts";
 
 export interface CliResult {
   readonly exitCode: number;
@@ -227,6 +227,10 @@ export async function runCliAsync(
     return result;
   }
 
+  if (parsed.command === "query") {
+    return runQuery(parsed, resolved.config);
+  }
+
   if (parsed.command === "status" && resolved.config.containerRuntime !== undefined) {
     return inspectRuntimeStatus(result, parsed.json, resolved.config, environment);
   }
@@ -260,6 +264,100 @@ export async function runCliAsync(
       renderDoctorDiagnostics(diagnostics),
     ].join("\n"),
   );
+}
+
+// One-shot query against the running facade: StartQueryExecution -> poll ->
+// GetQueryResults, over the raw AWS-JSON protocol (the SDK is a dev dependency
+// only). A diagnostic primitive — verify the stack end to end without SDK code.
+async function runQuery(
+  parsed: ParsedArgs,
+  config: AthenaLocalConfig,
+): Promise<CliResult> {
+  const queryText = parsed.queryText;
+  if (queryText === undefined || queryText.trim().length === 0) {
+    return {
+      exitCode: 2,
+      stdout: "",
+      stderr: 'query requires a SQL string, e.g. athena-local query "SELECT 1".\n',
+    };
+  }
+
+  const endpoint = `http://127.0.0.1:${config.ports.athena}/`;
+  const call = async <T>(target: string, body: unknown): Promise<T> => {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "X-Amz-Target": `AmazonAthena.${target}`,
+        "Content-Type": "application/x-amz-json-1.1",
+      },
+      body: JSON.stringify(body),
+    });
+    const text = await response.text();
+    const data = (text.length > 0 ? JSON.parse(text) : {}) as Record<string, unknown> & T;
+    if (!response.ok) {
+      const message = (data.message ?? data.Message) as string | undefined;
+      throw new Error(message ?? `${target} failed (HTTP ${response.status}).`);
+    }
+    return data;
+  };
+
+  try {
+    const started = await call<{ QueryExecutionId?: string }>("StartQueryExecution", {
+      QueryString: queryText,
+      ...(parsed.database === undefined
+        ? {}
+        : { QueryExecutionContext: { Database: parsed.database } }),
+    });
+    const id = started.QueryExecutionId;
+    if (id === undefined) {
+      return { exitCode: 1, stdout: "", stderr: "query failed: no QueryExecutionId returned.\n" };
+    }
+
+    let state: string | undefined;
+    let reason: string | undefined;
+    for (let attempt = 0; attempt < 600; attempt += 1) {
+      const got = await call<{
+        QueryExecution?: { Status?: { State?: string; StateChangeReason?: string } };
+      }>("GetQueryExecution", { QueryExecutionId: id });
+      state = got.QueryExecution?.Status?.State;
+      reason = got.QueryExecution?.Status?.StateChangeReason;
+      if (state === "SUCCEEDED") {
+        break;
+      }
+      if (state === "FAILED" || state === "CANCELLED") {
+        return {
+          exitCode: 1,
+          stdout: "",
+          stderr: `query ${state}: ${reason ?? "no reason given"}\n`,
+        };
+      }
+      await Bun.sleep(200);
+    }
+    if (state !== "SUCCEEDED") {
+      return { exitCode: 1, stdout: "", stderr: "query did not complete in time.\n" };
+    }
+
+    const results = await call<{
+      ResultSet?: { Rows?: { Data?: { VarCharValue?: string }[] }[] };
+    }>("GetQueryResults", { QueryExecutionId: id });
+    const rows = (results.ResultSet?.Rows ?? []).map((row) =>
+      (row.Data ?? []).map((datum) => datum.VarCharValue ?? ""),
+    );
+
+    if (parsed.json) {
+      return ok(`${JSON.stringify({ queryExecutionId: id, rows }, null, 2)}\n`);
+    }
+    return ok(`${rows.map((row) => row.join("\t")).join("\n")}\n`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "query failed.";
+    return {
+      exitCode: 1,
+      stdout: "",
+      stderr:
+        `query failed: ${message}\n` +
+        `(is the stack running? start it with: athena-local start)\n`,
+    };
+  }
 }
 
 async function runSeed(
@@ -669,16 +767,18 @@ Commands:
   start       Start local services
   stop        Stop services without deleting persistent data
   status      Show local service status
-  reset       Recreate local project state
+  reset       Recreate local project state (destroys then starts fresh)
   destroy     Remove local services and local data
   seed        Seed deterministic fixture data
+  query       Run a one-shot SQL statement against the running facade
 
 Options:
   --json
   --facade-only
   --port <port>
+  --database <name>        (query) database for QueryExecutionContext
   --runtime apple-container|docker
-  --storage-backend minio|s3
+  --storage-backend minio|s3|external
   --mode test|persistent
   --project-id <id>
   --run-id <id>

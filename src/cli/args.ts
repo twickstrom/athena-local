@@ -12,6 +12,7 @@ export const commands = [
   "reset",
   "destroy",
   "seed",
+  "query",
 ] as const;
 
 export type Command = (typeof commands)[number];
@@ -23,6 +24,9 @@ export interface ParsedArgs {
   readonly json: boolean;
   readonly facadeOnly: boolean;
   readonly port?: number;
+  // `query <sql>` positional and its --database.
+  readonly queryText?: string;
+  readonly database?: string;
   readonly config: PartialAthenaLocalConfig;
   readonly errors: readonly string[];
 }
@@ -36,6 +40,8 @@ export function parseArgs(args: readonly string[]): ParsedArgs {
   let json = false;
   let facadeOnly = false;
   let port: number | undefined;
+  let queryText: string | undefined;
+  let database: string | undefined;
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -48,6 +54,16 @@ export function parseArgs(args: readonly string[]): ParsedArgs {
         command = arg;
       } else {
         errors.push(`Unknown command: ${arg}`);
+      }
+      continue;
+    }
+
+    if (!arg.startsWith("-")) {
+      // The only positional after the command is the SQL for `query`.
+      if (command === "query" && queryText === undefined) {
+        queryText = arg;
+      } else {
+        errors.push(`Unexpected argument: ${arg}`);
       }
       continue;
     }
@@ -112,6 +128,10 @@ export function parseArgs(args: readonly string[]): ParsedArgs {
         config.s3Prefix = readOptionValue(args, index, arg, errors);
         index += 1;
         break;
+      case "--database":
+        database = readOptionValue(args, index, arg, errors);
+        index += 1;
+        break;
       default:
         errors.push(`Unknown option: ${arg}`);
         break;
@@ -125,6 +145,8 @@ export function parseArgs(args: readonly string[]): ParsedArgs {
     json,
     facadeOnly,
     ...(port === undefined ? {} : { port }),
+    ...(queryText === undefined ? {} : { queryText }),
+    ...(database === undefined ? {} : { database }),
     config,
     errors,
   };

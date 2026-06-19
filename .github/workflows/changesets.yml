@@ -58,15 +58,26 @@ jobs:
         if: steps.guard.outputs.ready == 'true'
         run: bun install --frozen-lockfile
 
-      - name: Create Version PR or tag the release
+      - name: Create or update the Version PR
         if: steps.guard.outputs.ready == 'true'
         uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
         with:
           version: bun run changeset:version
-          # Tag the new version (no npm publish here). Pushing the tag with the
-          # PAT triggers release.yml, which publishes via OIDC. The Release
-          # workflow owns the GitHub release, so this step does not create one.
-          publish: bun run changeset:tag
-          createGithubReleases: false
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+
+      # When the Version PR has merged, package.json carries a new version with no
+      # matching tag — tag it and push (with the PAT) to trigger release.yml's
+      # OIDC publish. The changesets action's own publish step only pushes tags
+      # for an npm publish, not a bare `changeset tag`, so we do it explicitly.
+      - name: Tag and push when the version is new
+        if: steps.guard.outputs.ready == 'true'
+        run: |
+          VERSION="v$(node -p "require('./package.json').version")"
+          if [ -n "$(git ls-remote --tags origin "$VERSION")" ]; then
+            echo "$VERSION already on origin — nothing to release."
+          else
+            echo "Tagging $VERSION to trigger the Release workflow."
+            git tag "$VERSION"
+            git push origin "$VERSION"
+          fi

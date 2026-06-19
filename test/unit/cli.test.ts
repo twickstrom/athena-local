@@ -259,6 +259,84 @@ describe("CLI runner", () => {
     expect(output.configSource).toBe("resolved");
   });
 
+  test("query parses the positional SQL and --database", () => {
+    const parsed = parseArgs(["query", "SELECT 1", "--database", "analytics"]);
+    expect(parsed.command).toBe("query");
+    expect(parsed.queryText).toBe("SELECT 1");
+    expect(parsed.database).toBe("analytics");
+    expect(parsed.errors).toEqual([]);
+  });
+
+  test("query runs a one-shot statement against the facade", async () => {
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const target = (req.headers.get("X-Amz-Target") ?? "").split(".").pop();
+        if (target === "StartQueryExecution") {
+          return Response.json({ QueryExecutionId: "q-1" });
+        }
+        if (target === "GetQueryExecution") {
+          return Response.json({ QueryExecution: { Status: { State: "SUCCEEDED" } } });
+        }
+        if (target === "GetQueryResults") {
+          return Response.json({
+            ResultSet: {
+              Rows: [
+                { Data: [{ VarCharValue: "id" }, { VarCharValue: "label" }] },
+                { Data: [{ VarCharValue: "1" }, { VarCharValue: "one" }] },
+              ],
+            },
+          });
+        }
+        return new Response(JSON.stringify({ message: "unsupported" }), { status: 400 });
+      },
+    });
+    try {
+      const result = await runCliAsync(["query", "SELECT * FROM t"], {
+        env: { ATHENA_LOCAL_PORT_ATHENA: String(server.port) },
+      });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("id\tlabel");
+      expect(result.stdout).toContain("1\tone");
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("query exits non-zero when the statement fails", async () => {
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const target = (req.headers.get("X-Amz-Target") ?? "").split(".").pop();
+        if (target === "StartQueryExecution") {
+          return Response.json({ QueryExecutionId: "q-2" });
+        }
+        if (target === "GetQueryExecution") {
+          return Response.json({
+            QueryExecution: { Status: { State: "FAILED", StateChangeReason: "boom" } },
+          });
+        }
+        return new Response("{}", { status: 200 });
+      },
+    });
+    try {
+      const result = await runCliAsync(["query", "SELECT bad"], {
+        env: { ATHENA_LOCAL_PORT_ATHENA: String(server.port) },
+      });
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("FAILED");
+      expect(result.stderr).toContain("boom");
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("query without SQL is a usage error", async () => {
+    const result = await runCliAsync(["query"], {});
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain("requires a SQL string");
+  });
+
   test("fails safely for unsafe S3 prefixes", () => {
     const result = runCli([
       "start",

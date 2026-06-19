@@ -98,7 +98,11 @@ export class BunS3Storage implements StorageBackend {
 
   #assertBucket(bucket: string): void {
     if (bucket !== this.#bucket) {
-      throw new Error("Storage operation bucket does not match configured bucket.");
+      throw new Error(
+        `Storage operation targets bucket "${bucket}" but athena-local writes results ` +
+          `to "${this.#bucket}". Use that bucket in OutputLocation, or set ` +
+          `ATHENA_OUTPUT_LOCATION / ATHENA_LOCAL_S3_BUCKET to match.`,
+      );
     }
   }
 }

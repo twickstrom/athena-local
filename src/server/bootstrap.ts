@@ -36,7 +36,7 @@ export function createAthenaLocalHandler(
 
   const state = openStateDatabase(env.ATHENA_LOCAL_STATE_PATH ?? ":memory:");
   const repository = new QueryExecutionRepository(state.database);
-  const facadeConfig = facadeConfigFromEnv(env);
+  const facadeConfig = facadeConfigFromEnv(env, resolved.config);
   const output = parseOutputLocation(facadeConfig.defaultOutputLocation);
   const backend = resolved.config.storageBackend;
   const isMinio = backend === "minio";
@@ -104,6 +104,7 @@ export function createAthenaLocalHandler(
 
 function facadeConfigFromEnv(
   env: Record<string, string | undefined>,
+  config: ResolvedConfig,
 ): AthenaFacadeConfig {
   const defaultCatalog = env.ATHENA_CATALOG ?? "AwsDataCatalog";
   return {
@@ -115,10 +116,35 @@ function facadeConfigFromEnv(
       (defaultCatalog === "AwsDataCatalog" ? "hive" : defaultCatalog),
     defaultDatabase: env.ATHENA_DATABASE ?? "default",
     defaultWorkgroup: env.ATHENA_WORKGROUP ?? "primary",
-    defaultOutputLocation:
-      env.ATHENA_OUTPUT_LOCATION ??
-      "s3://athena-local-results/local/",
+    defaultOutputLocation: resolveDefaultOutputLocation(env, config),
   };
+}
+
+type ResolvedConfig = ReturnType<typeof resolveConfig>["config"];
+
+// The query results store. minio writes to the bundled results bucket; the s3
+// and external backends do not run that bucket, so default results into the
+// configured store (a scoped prefix in ATHENA_LOCAL_S3_BUCKET). An explicit
+// ATHENA_OUTPUT_LOCATION always wins.
+export function resolveDefaultOutputLocation(
+  env: Record<string, string | undefined>,
+  config: ResolvedConfig,
+): string {
+  if (env.ATHENA_OUTPUT_LOCATION !== undefined) {
+    return env.ATHENA_OUTPUT_LOCATION;
+  }
+  const ownsBucket =
+    config.storageBackend === "external" || config.storageBackend === "s3";
+  if (ownsBucket && config.s3Bucket !== undefined && config.s3Bucket.length > 0) {
+    const base = trimSlashes(config.s3Prefix ?? "");
+    const prefix = base.length > 0 ? `${base}/athena-local-results` : "athena-local-results";
+    return `s3://${config.s3Bucket}/${prefix}/`;
+  }
+  return "s3://athena-local-results/local/";
+}
+
+function trimSlashes(value: string): string {
+  return value.replace(/^\/+/, "").replace(/\/+$/, "");
 }
 
 function parseOutputLocation(outputLocation: string): {

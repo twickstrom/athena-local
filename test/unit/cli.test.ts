@@ -2,6 +2,9 @@
 // SPDX-FileCopyrightText: 2026 Tim Wickstrom
 
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { parseArgs } from "../../src/cli/args.ts";
 import { runCli, runCliAsync } from "../../src/cli/run.ts";
 import type { HostDoctorChecks } from "../../src/doctor/checks.ts";
@@ -201,6 +204,53 @@ describe("CLI runner", () => {
     );
   });
 
+  test("status reports the running config persisted at start, not ambient env", async () => {
+    const root = mkdtempSync(join(tmpdir(), "athena-local-running-"));
+
+    // Start the stack in external mode; the effective config is snapshotted.
+    const started = await runCliAsync(["start", "--runtime", "docker"], {
+      env: {
+        ATHENA_LOCAL_STORAGE_BACKEND: "external",
+        ATHENA_LOCAL_S3_BUCKET: "analytics",
+        ATHENA_LOCAL_S3_ENDPOINT: "http://localhost:9000",
+      },
+      hostChecks: fakeHostChecks(),
+      readinessProbes: fakeReadinessProbes(true),
+      runtimeConfigWriter: async () => fakeRuntimeConfigPaths(),
+      processExecutor: recordingExecutor([]),
+      runningConfigRoot: root,
+    });
+    expect(started.exitCode).toBe(0);
+
+    // status, run WITHOUT the external env, still reports external from the snapshot.
+    const status = await runCliAsync(["status", "--json", "--runtime", "docker"], {
+      runtimeAdapters: {
+        docker: fakeRuntime({ runtime: "docker", available: true, services: [] }),
+      },
+      runningConfigRoot: root,
+    });
+
+    expect(status.exitCode).toBe(0);
+    const output = JSON.parse(status.stdout) as {
+      config: { storageBackend: string };
+      configSource: string;
+    };
+    expect(output.configSource).toBe("running");
+    expect(output.config.storageBackend).toBe("external");
+  });
+
+  test("status falls back to resolved config when nothing is running", async () => {
+    const root = mkdtempSync(join(tmpdir(), "athena-local-running-empty-"));
+    const status = await runCliAsync(["status", "--json", "--runtime", "docker"], {
+      runtimeAdapters: {
+        docker: fakeRuntime({ runtime: "docker", available: true, services: [] }),
+      },
+      runningConfigRoot: root,
+    });
+    const output = JSON.parse(status.stdout) as { configSource: string };
+    expect(output.configSource).toBe("resolved");
+  });
+
   test("fails safely for unsafe S3 prefixes", () => {
     const result = runCli([
       "start",
@@ -321,6 +371,38 @@ describe("CLI runner", () => {
     expect(result.stderr).toContain("port is already allocated");
     expect(result.stderr).toContain("rollback commands executed: 8");
     expect(executed).toHaveLength(10);
+  });
+
+  test("external mode does not fail the start on bundled MinIO ports", async () => {
+    const result = await runCliAsync(["start", "--runtime", "docker"], {
+      env: {
+        ATHENA_LOCAL_STORAGE_BACKEND: "external",
+        ATHENA_LOCAL_S3_BUCKET: "analytics",
+        ATHENA_LOCAL_S3_ENDPOINT: "http://localhost:9000",
+      },
+      hostChecks: fakeHostChecks({
+        unavailablePorts: new Set(["minio", "minioConsole"]),
+      }),
+      readinessProbes: fakeReadinessProbes(true),
+      runtimeConfigWriter: async () => fakeRuntimeConfigPaths(),
+      processExecutor: recordingExecutor([]),
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).not.toContain("required host ports are unavailable");
+  });
+
+  test("fails the start with a non-zero exit when a required port is unavailable", async () => {
+    const result = await runCliAsync(["start", "--runtime", "docker"], {
+      hostChecks: fakeHostChecks({ unavailablePorts: new Set(["trino"]) }),
+      readinessProbes: fakeReadinessProbes(true),
+      runtimeConfigWriter: async () => fakeRuntimeConfigPaths(),
+      processExecutor: recordingExecutor([]),
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("required host ports are unavailable");
+    expect(result.stderr).toContain("trino");
   });
 
   test("rolls back when runtime readiness fails after start", async () => {

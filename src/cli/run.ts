@@ -78,6 +78,9 @@ export interface CliEnvironment {
   ) => Promise<RuntimeConfigPaths>;
   readonly seedExecutor?: SeedExecutor;
   readonly bucketManager?: BucketManager;
+  // Directory holding the persisted running-config snapshot (defaults to the
+  // runtime config root). Injected in tests.
+  readonly runningConfigRoot?: string;
 }
 
 export interface DoctorDiagnostics {
@@ -315,6 +318,64 @@ function defaultBucketManager(
   });
 }
 
+function isMinioPortName(name: string): boolean {
+  return name === "minio" || name === "minioConsole";
+}
+
+const DEFAULT_RUNTIME_ROOT = ".athena-local/runtime";
+const RUNNING_CONFIG_FILE = "running.json";
+
+function runningConfigPath(root: string): string {
+  return `${root.replace(/\/+$/, "")}/${RUNNING_CONFIG_FILE}`;
+}
+
+// Persist the effective config of a started stack so a later `status` (run
+// without the same env) can report what is actually running. Best-effort: a
+// start must never fail because the snapshot could not be written.
+async function writeRunningConfig(
+  root: string,
+  config: AthenaLocalConfig,
+): Promise<void> {
+  try {
+    await Bun.write(
+      runningConfigPath(root),
+      `${JSON.stringify(
+        { config: redactConfig(config), savedAt: new Date().toISOString() },
+        null,
+        2,
+      )}\n`,
+    );
+  } catch {
+    // ignore — the snapshot is a diagnostic convenience, not load-bearing
+  }
+}
+
+async function readRunningConfig(
+  root: string,
+): Promise<{ readonly config: unknown; readonly savedAt?: string } | undefined> {
+  try {
+    const file = Bun.file(runningConfigPath(root));
+    if (!(await file.exists())) {
+      return undefined;
+    }
+    return JSON.parse(await file.text()) as {
+      readonly config: unknown;
+      readonly savedAt?: string;
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+async function removeRunningConfig(root: string): Promise<void> {
+  try {
+    const { rm } = await import("node:fs/promises");
+    await rm(runningConfigPath(root), { force: true });
+  } catch {
+    // ignore
+  }
+}
+
 function seedBuckets(
   config: AthenaLocalConfig,
   env: Record<string, string | undefined>,
@@ -355,12 +416,27 @@ async function inspectRuntimeStatus(
     }),
   );
 
+  // Prefer the snapshot written at start so status reflects the config the
+  // running stack was started with, not whatever env happens to be set now.
+  const running = await readRunningConfig(
+    environment.runningConfigRoot ?? DEFAULT_RUNTIME_ROOT,
+  );
+
   if (json) {
     const output = JSON.parse(result.stdout) as Record<string, unknown>;
     return ok(
       `${JSON.stringify(
         {
           ...output,
+          ...(running === undefined
+            ? { configSource: "resolved" }
+            : {
+                config: running.config,
+                configSource: "running",
+                ...(running.savedAt === undefined
+                  ? {}
+                  : { runningSince: running.savedAt }),
+              }),
           runtimeStatus: status,
           serviceStatus: status.services,
         },
@@ -389,7 +465,13 @@ async function executeRuntimeCommand(
 
   if (command === "start" || command === "reset") {
     const diagnostics = await collectHostDiagnostics(config, environment.hostChecks);
-    const conflicts = diagnostics.ports.filter((port) => !port.available);
+    // The s3/external backends do not run the bundled MinIO, so its ports are
+    // not required — and in external mode the store the user attaches to often
+    // already occupies 9000. Don't fail the start on ports we won't bind.
+    const bundlesMinio = config.storageBackend === "minio";
+    const conflicts = diagnostics.ports.filter(
+      (port) => !port.available && (bundlesMinio || !isMinioPortName(port.name)),
+    );
     if (conflicts.length > 0) {
       return {
         exitCode: 1,
@@ -497,6 +579,18 @@ async function executeRuntimeCommand(
             `\nrollback commands executed: ${rollbackLifecycle.executed.length}\n`,
         };
       }
+    }
+    // Persist (or clear) the effective running config so a later `status` can
+    // report what is actually running, not just the ambient env defaults.
+    if (command === "start" || command === "reset") {
+      await writeRunningConfig(
+        environment.runningConfigRoot ?? configPaths?.root ?? DEFAULT_RUNTIME_ROOT,
+        config,
+      );
+    } else if (command === "destroy" || command === "stop") {
+      await removeRunningConfig(
+        environment.runningConfigRoot ?? DEFAULT_RUNTIME_ROOT,
+      );
     }
     if (command === "start") {
       return {

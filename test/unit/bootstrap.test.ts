@@ -2,7 +2,58 @@
 // SPDX-FileCopyrightText: 2026 Tim Wickstrom
 
 import { describe, expect, test } from "bun:test";
-import { createAthenaLocalHandler } from "../../src/server/bootstrap.ts";
+import {
+  createAthenaLocalHandler,
+  resolveDefaultOutputLocation,
+} from "../../src/server/bootstrap.ts";
+import { resolveConfig } from "../../src/config/resolve.ts";
+
+describe("resolveDefaultOutputLocation", () => {
+  const configFor = (env: Record<string, string | undefined>) =>
+    resolveConfig({ env }).config;
+
+  test("external mode defaults results into the external bucket", () => {
+    const env = {
+      ATHENA_LOCAL_STORAGE_BACKEND: "external",
+      ATHENA_LOCAL_S3_BUCKET: "analytics",
+      ATHENA_LOCAL_S3_ENDPOINT: "http://localhost:9000",
+    };
+    expect(resolveDefaultOutputLocation(env, configFor(env))).toBe(
+      "s3://analytics/athena-local-results/",
+    );
+  });
+
+  test("external mode honors a configured prefix", () => {
+    const env = {
+      ATHENA_LOCAL_STORAGE_BACKEND: "external",
+      ATHENA_LOCAL_S3_BUCKET: "analytics",
+      ATHENA_LOCAL_S3_ENDPOINT: "http://localhost:9000",
+      ATHENA_LOCAL_S3_PREFIX: "tenants/",
+    };
+    expect(resolveDefaultOutputLocation(env, configFor(env))).toBe(
+      "s3://analytics/tenants/athena-local-results/",
+    );
+  });
+
+  test("an explicit ATHENA_OUTPUT_LOCATION always wins", () => {
+    const env = {
+      ATHENA_LOCAL_STORAGE_BACKEND: "external",
+      ATHENA_LOCAL_S3_BUCKET: "analytics",
+      ATHENA_LOCAL_S3_ENDPOINT: "http://localhost:9000",
+      ATHENA_OUTPUT_LOCATION: "s3://analytics/custom/",
+    };
+    expect(resolveDefaultOutputLocation(env, configFor(env))).toBe(
+      "s3://analytics/custom/",
+    );
+  });
+
+  test("minio mode keeps the bundled results bucket", () => {
+    const env = { ATHENA_LOCAL_STORAGE_BACKEND: "minio" };
+    expect(resolveDefaultOutputLocation(env, configFor(env))).toBe(
+      "s3://athena-local-results/local/",
+    );
+  });
+});
 
 describe("server bootstrap", () => {
   test("validates unsafe AWS S3 configuration before creating handler", () => {

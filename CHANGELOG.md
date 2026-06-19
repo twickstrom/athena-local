@@ -2,6 +2,33 @@
 
 This project follows semantic versioning.
 
+## 0.1.2
+
+### Patch Changes
+
+- CLI accuracy fixes:
+
+  - `--version` now reports the real package version (read from package.json)
+    instead of `0.0.0`.
+  - `status --json` reports the configuration the running stack was actually
+    started with (persisted at start) rather than the ambient env defaults, with a
+    `configSource` of `running` or `resolved`.
+  - A failed `start` (e.g. a required host port in use) exits non-zero, so
+    automation can detect it (covered by a regression test).
+
+- Make external (attach) mode usable end to end:
+
+  - Default the query results location into the configured external store
+    (`s3://<ATHENA_LOCAL_S3_BUCKET>/[<prefix>/]athena-local-results/`) instead of
+    the bundled-MinIO results bucket, which external mode does not run — every
+    query previously failed with "The specified bucket does not exist".
+  - Per-query `ResultConfiguration.OutputLocation` targeting the configured bucket
+    is now honored (the default bucket matches it), and the bucket-mismatch error
+    is now actionable.
+  - Skip the bundled-MinIO port precheck (9000/9001) in the s3/external backends,
+    which the launch already skips — external mode no longer collides with the
+    store it attaches to.
+
 ## 0.1.1
 
 ### Patch Changes
